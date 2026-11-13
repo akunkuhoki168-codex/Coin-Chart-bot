@@ -4,12 +4,15 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0b0e11" />
+  <meta name="app-version" content="4.0" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>PUMP/USDT — Binance Spot</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230b0e11'/%3E%3Cpath d='M3 11 L7 6 L10 9 L13 4' stroke='%230ecb81' stroke-width='1.6' fill='none'/%3E%3C/svg%3E" />
-  <script src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
+  <script src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js?v=4.0"></script>
   <style>
     :root {
       --bg: #0b0e11;
@@ -128,6 +131,8 @@
     .up { color: var(--up); }
     .down { color: var(--down); }
     .live-pill {
+      text-transform: none;
+      white-space: nowrap;
       display: inline-flex;
       align-items: center;
       gap: 5px;
@@ -139,8 +144,7 @@
       min-height: 28px;
       font-size: 10px;
       font-weight: 700;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
+      letter-spacing: 0.04em;
       color: var(--muted);
     }
     .live-pill .dot {
@@ -596,7 +600,7 @@
   </style>
 </head>
 <body>
-  <!-- coin-chart v3 tighter markers default zoom -->
+  <!-- coin-chart v4 rest-ws failover polling -->
   <div id="app">
     <header id="header">
       <div id="header-inner">
@@ -665,7 +669,7 @@
         <div class="sheet-title-row">
           <div class="sheet-title">Settings</div>
         </div>
-        <div class="sheet-sub">Indicators, reversal patterns, and confirmation filters</div>
+        <div class="sheet-sub">Indicators, reversal patterns, and confirmation filters<br />Version 4.0 · REST/WS failover</div>
       </div>
       <div class="list" id="settings-body"></div>
     </section>
@@ -705,7 +709,8 @@
     window.__pumpStatus = {
       ready: false, errors: [], live: false, trades: 0, symbol: "PUMPUSDT",
       coinsLoaded: false, coinCount: 0, marketLive: false,
-      signals: 0, markers: 0, view: "chart", scanDone: 0, switched: []
+      signals: 0, markers: 0, view: "chart", scanDone: 0, switched: [],
+      version: "4.0", mode: null, restBase: null, wsHost: null, polls: 0
     };
 
     function logError(err) {
@@ -723,12 +728,23 @@
 
     var TFS = ["1m", "5m", "15m", "1h", "4h", "1d"];
     var INTERVAL_MS = { "1m": 60000, "5m": 300000, "15m": 900000, "1h": 3600000, "4h": 14400000, "1d": 86400000 };
-    var REST = "https://api.binance.com/api/v3";
-    var WS_HOSTS = [
-      "wss://stream.binance.com:443",
-      "wss://stream.binance.com:9443",
-      "wss://data-stream.binance.vision"
+    var APP_VERSION = "4.0";
+    var REST_BASES = [
+      "https://data-api.binance.vision",
+      "https://api.binance.com",
+      "https://api1.binance.com",
+      "https://api2.binance.com",
+      "https://api3.binance.com",
+      "https://api-gcp.binance.com"
     ];
+    var REST_TIMEOUT = 4000;
+    var REST_TIMEOUT_BULKY = 8000;
+    var WS_HOSTS = [
+      "wss://data-stream.binance.vision:443",
+      "wss://stream.binance.com:443",
+      "wss://stream.binance.com:9443"
+    ];
+    var WS_CONNECT_TIMEOUT = 5000;
     var UP = "#0ecb81";
     var DOWN = "#f6465d";
     var TZ = "Asia/Jakarta";
@@ -737,7 +753,8 @@
       tf: "coin-chart:tf",
       filters: "coin-chart:filters",
       indicators: "coin-chart:indicators",
-      sort: "coin-chart:sort"
+      sort: "coin-chart:sort",
+      restBase: "coin-chart:restBase"
     };
 
     var PATTERNS = [
@@ -833,12 +850,66 @@
       showRsi: savedInd.showRsi !== false,
       lastTrade: null, ticker: null, ws: null, marketWs: null, closed: false,
       hostIndex: 0, marketHostIndex: 0, attempt: 0, marketAttempt: 0,
-      retryTimer: null, marketRetry: null, loadId: 0, view: "chart",
+      wsFailures: 0, marketFailures: 0,
+      retryTimer: null, marketRetry: null, wsConnectTimer: null, marketConnectTimer: null,
+      loadId: 0, view: "chart",
       coins: [], coinSet: {}, tickers: {}, search: "", signals: [],
       scanMap: {}, scanCache: {}, scanToken: 0, listTimer: null, formingTimer: null,
+      polling: false, klinePollTimer: null, tickerPollTimer: null,
+      restBase: (function () {
+        try {
+          var b = localStorage.getItem(LS.restBase);
+          return (b && REST_BASES.indexOf(b) !== -1) ? b : null;
+        } catch (e) { return null; }
+      })(),
       sort: (function () { try { return localStorage.getItem(LS.sort) || "volume"; } catch (e) { return "volume"; } })()
     };
     window.__pumpStatus.symbol = state.symbol;
+    window.__pumpStatus.version = APP_VERSION;
+    if (state.restBase) window.__pumpStatus.restBase = state.restBase;
+
+    function fetchWithTimeout(url, timeout) {
+      var ctrl = new AbortController();
+      var timer = setTimeout(function () { try { ctrl.abort(); } catch (e) {} }, timeout || REST_TIMEOUT);
+      return fetch(url, { signal: ctrl.signal, cache: "no-store" }).then(function (res) {
+        clearTimeout(timer);
+        return res;
+      }, function (err) {
+        clearTimeout(timer);
+        throw err;
+      });
+    }
+    function restBases() {
+      var bases = REST_BASES.slice();
+      if (state.restBase) {
+        bases = [state.restBase].concat(bases.filter(function (b) { return b !== state.restBase; }));
+      }
+      return bases;
+    }
+    function rememberRestBase(base) {
+      if (state.restBase === base) return;
+      state.restBase = base;
+      window.__pumpStatus.restBase = base;
+      try { localStorage.setItem(LS.restBase, base); } catch (e) {}
+    }
+    async function restGet(path, timeout) {
+      var bases = restBases();
+      var lastErr = null, i, url, res;
+      for (i = 0; i < bases.length; i++) {
+        url = bases[i] + "/api/v3" + path;
+        try {
+          res = await fetchWithTimeout(url, timeout || REST_TIMEOUT);
+          if (res.ok) {
+            rememberRestBase(bases[i]);
+            return res;
+          }
+          lastErr = new Error("HTTP " + res.status + " " + url);
+        } catch (e) {
+          lastErr = e;
+        }
+      }
+      throw lastErr || new Error("All Binance REST bases failed for " + path);
+    }
 
     var jakartaFull = new Intl.DateTimeFormat("en-GB", {
       timeZone: TZ, weekday: "short", day: "2-digit", month: "short", year: "numeric",
@@ -999,7 +1070,7 @@
       html += checkRow("conf-labels", "Show labels on chart markers (1–3 letter codes)", filters.showLabels);
       html += checkRow("conf-scan", "Scan top 50 coins for fresh signals", filters.scan);
       html += "</div>";
-      html += "<p class=\"hint\">Times are UTC+7 (Asia/Jakarta). Patterns are detected on closed candles of the current timeframe. Data: Binance Spot REST + WebSocket (aggTrade, kline, !miniTicker@arr).</p>";
+      html += "<p class=\"hint\">Version " + APP_VERSION + " · Times are UTC+7 (Asia/Jakarta). If the chart stays on Connecting, close and reopen this tab. Data: Binance REST (multiple endpoints) + WebSocket, with REST polling fallback.</p>";
       host.innerHTML = html;
       bindFilterForm(host);
     }
@@ -1608,16 +1679,15 @@
     });
 
     async function fetchHistory(symbol, tf, loadId) {
-      var kUrl = REST + "/klines?symbol=" + encodeURIComponent(symbol) + "&interval=" + encodeURIComponent(tf) + "&limit=1000";
-      var tUrl = REST + "/ticker/24hr?symbol=" + encodeURIComponent(symbol);
-      var rs = await Promise.all([fetch(kUrl), fetch(tUrl)]);
+      var qs = "?symbol=" + encodeURIComponent(symbol) + "&interval=" + encodeURIComponent(tf) + "&limit=1000";
+      var kRes = await restGet("/klines" + qs, REST_TIMEOUT_BULKY);
       if (loadId !== state.loadId) return;
-      if (!rs[0].ok) {
-        var errText = await rs[0].text();
-        throw new Error("Binance klines " + rs[0].status + (errText ? ": " + errText.slice(0, 180) : ""));
-      }
-      var raw = await rs[0].json();
-      var tick = rs[1].ok ? await rs[1].json() : null;
+      var raw = await kRes.json();
+      var tick = null;
+      try {
+        var tRes = await restGet("/ticker/24hr?symbol=" + encodeURIComponent(symbol));
+        if (tRes.ok) tick = await tRes.json();
+      } catch (e) {}
       if (loadId !== state.loadId) return;
       state.candles = raw.map(function (r) {
         return { time: toSec(r[0]), open: +r[1], high: +r[2], low: +r[3], close: +r[4], volume: +r[5] };
@@ -1645,38 +1715,76 @@
     }
     function closeWs() {
       if (state.retryTimer) { clearTimeout(state.retryTimer); state.retryTimer = null; }
+      if (state.wsConnectTimer) { clearTimeout(state.wsConnectTimer); state.wsConnectTimer = null; }
       if (state.ws) {
         var ws = state.ws;
         state.ws = null;
         try { ws.onclose = null; ws.onerror = null; ws.onmessage = null; ws.close(); } catch (e) {}
       }
     }
-    function scheduleReconnect() {
+    function onWsFail() {
       if (state.closed) return;
-      setStatus("reconnecting", "Reconnecting");
-      var wait = Math.min(10000, 400 * Math.pow(2, state.attempt));
+      state.wsFailures = (state.wsFailures || 0) + 1;
       state.attempt += 1;
       state.hostIndex = (state.hostIndex + 1) % WS_HOSTS.length;
-      state.retryTimer = setTimeout(connectWs, wait);
+      if (state.wsFailures >= WS_HOSTS.length) {
+        startPolling();
+        scheduleWsRetry(true);
+      } else {
+        if (!state.polling) setStatus("connecting", "Connecting");
+        state.retryTimer = setTimeout(connectWs, 200);
+      }
+    }
+    function scheduleWsRetry(background) {
+      if (state.closed || state.retryTimer) return;
+      var wait = background ? Math.min(15000, 1000 * Math.pow(2, Math.min(state.attempt, 4))) : 200;
+      state.retryTimer = setTimeout(function () {
+        state.retryTimer = null;
+        connectWs();
+      }, wait);
     }
     function connectWs() {
       if (state.closed) return;
+      if (state.ws && (state.ws.readyState === WebSocket.OPEN || state.ws.readyState === WebSocket.CONNECTING)) return;
       if (typeof WebSocket === "undefined") {
-        setStatus("error", "No WebSocket");
-        showError("This browser does not support WebSocket.");
+        startPolling();
         return;
       }
+      if (state.retryTimer) { clearTimeout(state.retryTimer); state.retryTimer = null; }
       var url = streamUrl(state.symbol, state.tf, WS_HOSTS[state.hostIndex]);
-      var ws;
-      try { ws = new WebSocket(url); } catch (e) { scheduleReconnect(); return; }
+      var ws, settled = false;
+      try { ws = new WebSocket(url); } catch (e) { onWsFail(); return; }
       state.ws = ws;
-      ws.onopen = function () { state.attempt = 0; clearError(); };
+      function fail() {
+        if (settled) return;
+        settled = true;
+        if (state.wsConnectTimer) { clearTimeout(state.wsConnectTimer); state.wsConnectTimer = null; }
+        try { ws.onclose = null; ws.onerror = null; ws.onmessage = null; ws.close(); } catch (e) {}
+        if (state.ws === ws) state.ws = null;
+        onWsFail();
+      }
+      state.wsConnectTimer = setTimeout(fail, WS_CONNECT_TIMEOUT);
+      ws.onopen = function () {
+        if (settled) { try { ws.close(); } catch (e) {} return; }
+        settled = true;
+        if (state.wsConnectTimer) { clearTimeout(state.wsConnectTimer); state.wsConnectTimer = null; }
+        state.attempt = 0;
+        state.wsFailures = 0;
+        window.__pumpStatus.wsHost = WS_HOSTS[state.hostIndex];
+        window.__pumpStatus.mode = "ws";
+        stopPolling();
+        clearError();
+        setStatus("live", "Live");
+      };
       ws.onmessage = function (ev) {
         var msg, data, stream;
         try { msg = JSON.parse(ev.data); } catch (e) { return; }
         data = msg.data || msg;
         if (!data || typeof data !== "object") return;
-        setStatus("live", "Live");
+        if (!state.polling) {
+          window.__pumpStatus.mode = "ws";
+          setStatus("live", "Live");
+        }
         stream = msg.stream || "";
         if (stream.indexOf("@aggTrade") !== -1 || data.e === "aggTrade") {
           applyTrade(+data.p, +data.q, +data.T);
@@ -1689,9 +1797,86 @@
       };
       ws.onerror = function () {};
       ws.onclose = function () {
+        if (state.wsConnectTimer) { clearTimeout(state.wsConnectTimer); state.wsConnectTimer = null; }
         if (state.ws === ws) state.ws = null;
-        if (!state.closed) scheduleReconnect();
+        if (!settled) { settled = true; if (!state.closed) onWsFail(); }
+        else if (!state.closed && !state.polling) onWsFail();
+        else if (!state.closed && state.polling) scheduleWsRetry(true);
       };
+    }
+    function startPolling() {
+      if (state.closed) return;
+      state.polling = true;
+      window.__pumpStatus.mode = "polling";
+      setStatus("live", "Live (polling)");
+      if (!state.klinePollTimer) {
+        pollKline();
+        state.klinePollTimer = setInterval(pollKline, 1000);
+      }
+      startTickerPolling();
+    }
+    function startTickerPolling() {
+      if (state.closed) return;
+      if (!state.tickerPollTimer) {
+        pollTickers();
+        state.tickerPollTimer = setInterval(pollTickers, 5000);
+      }
+    }
+    function stopPolling() {
+      state.polling = false;
+      if (state.klinePollTimer) { clearInterval(state.klinePollTimer); state.klinePollTimer = null; }
+      if (state.tickerPollTimer) { clearInterval(state.tickerPollTimer); state.tickerPollTimer = null; }
+    }
+    async function pollKline() {
+      if (state.closed || !state.polling || state._klinePollInFlight) return;
+      state._klinePollInFlight = true;
+      try {
+        var res = await restGet("/klines?symbol=" + encodeURIComponent(state.symbol) + "&interval=" + encodeURIComponent(state.tf) + "&limit=3");
+        var raw = await res.json();
+        if (!raw || !raw.length) return;
+        raw.forEach(function (r) {
+          upsertLast({ time: toSec(r[0]), open: +r[1], high: +r[2], low: +r[3], close: +r[4], volume: +r[5] });
+        });
+        renderIndicators();
+        scheduleSignalRefresh(200);
+        applyTicker({ last: +raw[raw.length - 1][4] });
+        window.__pumpStatus.polls = (window.__pumpStatus.polls || 0) + 1;
+        setStatus("live", "Live (polling)");
+      } catch (e) {
+      } finally {
+        state._klinePollInFlight = false;
+      }
+    }
+    async function pollTickers() {
+      if (state.closed || state._tickerPollInFlight) return;
+      if (!state.polling && state.marketWs && state.marketWs.readyState === WebSocket.OPEN) return;
+      state._tickerPollInFlight = true;
+      try {
+        var res = await restGet("/ticker/24hr", REST_TIMEOUT_BULKY);
+        var ticks = await res.json();
+        if (!Array.isArray(ticks)) return;
+        var i, row;
+        for (i = 0; i < ticks.length; i++) {
+          row = ticks[i];
+          if (!state.coinSet[row.symbol]) continue;
+          upsertTicker(row.symbol, {
+            last: +row.lastPrice, open: +row.openPrice, changePct: +row.priceChangePercent,
+            quoteVolume: +row.quoteVolume, volume: +row.volume, high: +row.highPrice, low: +row.lowPrice
+          });
+          if (row.symbol === state.symbol) {
+            applyTicker({
+              last: +row.lastPrice, change: +row.priceChange, changePct: +row.priceChangePercent,
+              high: +row.highPrice, low: +row.lowPrice, open: +row.openPrice,
+              volume: +row.volume, quoteVolume: +row.quoteVolume
+            });
+          }
+        }
+        window.__pumpStatus.marketLive = true;
+        scheduleListRender();
+      } catch (e) {
+      } finally {
+        state._tickerPollInFlight = false;
+      }
     }
     async function loadSymbol(symbol, tf, fromList) {
       state.symbol = symbol;
@@ -1706,8 +1891,12 @@
       renderHeader();
       state.loadId += 1;
       var loadId = state.loadId;
+      stopPolling();
       closeWs();
       state.closed = false;
+      state.wsFailures = 0;
+      state.attempt = 0;
+      state.hostIndex = 0;
       setStatus("connecting", "Connecting");
       highlightCoin();
       if (fromList) {
@@ -1722,6 +1911,11 @@
       } catch (e) {
         logError(e);
         setStatus("error", "Error");
+        if (loadId === state.loadId) {
+          state.retryTimer = setTimeout(function () {
+            if (loadId === state.loadId) loadSymbol(state.symbol, state.tf);
+          }, 2500);
+        }
       }
     }
     function setTimeframe(tf) {
@@ -1837,18 +2031,18 @@
     }
 
     async function loadMarkets() {
-      var infoUrl = REST + "/exchangeInfo?permissions=SPOT";
-      var tickUrl = REST + "/ticker/24hr";
-      var infoRes, tickRes, info, ticks, i, s, rec;
+      var info, ticks = [], i, rec, s;
       try {
-        var rs = await Promise.all([fetch(infoUrl), fetch(tickUrl)]);
-        infoRes = rs[0]; tickRes = rs[1];
-        if (!infoRes.ok) throw new Error("exchangeInfo " + infoRes.status);
+        var infoRes = await restGet("/exchangeInfo?permissions=SPOT", REST_TIMEOUT_BULKY);
         info = await infoRes.json();
-        ticks = tickRes.ok ? await tickRes.json() : [];
+        try {
+          var tickRes = await restGet("/ticker/24hr", REST_TIMEOUT_BULKY);
+          ticks = tickRes.ok ? await tickRes.json() : [];
+        } catch (e2) { ticks = []; }
       } catch (e) {
         logError(e);
         document.getElementById("coin-list").innerHTML = "<div class=\"empty\">Could not load Binance pairs.</div>";
+        setTimeout(loadMarkets, 4000);
         return;
       }
       var coins = [];
@@ -1882,26 +2076,46 @@
     function marketUrl(host) { return host + "/stream?streams=!miniTicker@arr"; }
     function closeMarketWs() {
       if (state.marketRetry) { clearTimeout(state.marketRetry); state.marketRetry = null; }
+      if (state.marketConnectTimer) { clearTimeout(state.marketConnectTimer); state.marketConnectTimer = null; }
       if (state.marketWs) {
         var ws = state.marketWs;
         state.marketWs = null;
         try { ws.onclose = null; ws.onerror = null; ws.onmessage = null; ws.close(); } catch (e) {}
       }
     }
-    function scheduleMarketReconnect() {
+    function onMarketWsFail() {
       if (state.closed) return;
-      var wait = Math.min(10000, 400 * Math.pow(2, state.marketAttempt));
+      state.marketFailures = (state.marketFailures || 0) + 1;
       state.marketAttempt += 1;
       state.marketHostIndex = (state.marketHostIndex + 1) % WS_HOSTS.length;
+      if (state.marketFailures >= WS_HOSTS.length) startTickerPolling();
+      var wait = state.marketFailures >= WS_HOSTS.length ? Math.min(15000, 1000 * Math.pow(2, Math.min(state.marketAttempt, 4))) : 200;
       state.marketRetry = setTimeout(connectMarketWs, wait);
     }
     function connectMarketWs() {
       if (state.closed) return;
+      if (state.marketWs && (state.marketWs.readyState === WebSocket.OPEN || state.marketWs.readyState === WebSocket.CONNECTING)) return;
+      if (state.marketRetry) { clearTimeout(state.marketRetry); state.marketRetry = null; }
       var url = marketUrl(WS_HOSTS[state.marketHostIndex]);
-      var ws;
-      try { ws = new WebSocket(url); } catch (e) { scheduleMarketReconnect(); return; }
+      var ws, settled = false;
+      try { ws = new WebSocket(url); } catch (e) { onMarketWsFail(); return; }
       state.marketWs = ws;
-      ws.onopen = function () { state.marketAttempt = 0; };
+      function fail() {
+        if (settled) return;
+        settled = true;
+        if (state.marketConnectTimer) { clearTimeout(state.marketConnectTimer); state.marketConnectTimer = null; }
+        try { ws.onclose = null; ws.onerror = null; ws.onmessage = null; ws.close(); } catch (e) {}
+        if (state.marketWs === ws) state.marketWs = null;
+        onMarketWsFail();
+      }
+      state.marketConnectTimer = setTimeout(fail, WS_CONNECT_TIMEOUT);
+      ws.onopen = function () {
+        if (settled) { try { ws.close(); } catch (e) {} return; }
+        settled = true;
+        if (state.marketConnectTimer) { clearTimeout(state.marketConnectTimer); state.marketConnectTimer = null; }
+        state.marketAttempt = 0;
+        state.marketFailures = 0;
+      };
       ws.onmessage = function (ev) {
         var msg, arr, i, d, sym;
         try { msg = JSON.parse(ev.data); } catch (e) { return; }
@@ -1924,9 +2138,11 @@
       };
       ws.onerror = function () {};
       ws.onclose = function () {
+        if (state.marketConnectTimer) { clearTimeout(state.marketConnectTimer); state.marketConnectTimer = null; }
         if (state.marketWs === ws) state.marketWs = null;
         window.__pumpStatus.marketLive = false;
-        if (!state.closed) scheduleMarketReconnect();
+        if (!settled) { settled = true; if (!state.closed) onMarketWsFail(); }
+        else if (!state.closed) onMarketWsFail();
       };
     }
 
@@ -1937,8 +2153,7 @@
       }).slice(0, n);
     }
     async function fetchKlines(symbol, tf, limit) {
-      var url = REST + "/klines?symbol=" + encodeURIComponent(symbol) + "&interval=" + encodeURIComponent(tf) + "&limit=" + (limit || 150);
-      var res = await fetch(url);
+      var res = await restGet("/klines?symbol=" + encodeURIComponent(symbol) + "&interval=" + encodeURIComponent(tf) + "&limit=" + (limit || 150));
       if (!res.ok) throw new Error("klines " + symbol + " " + res.status);
       var raw = await res.json();
       return raw.map(function (r) {
@@ -2000,8 +2215,22 @@
       layoutCharts();
       setView(isDesktop() ? "chart" : state.view);
     });
+    function resumeConnections() {
+      if (state.closed) return;
+      if (!state.ws || (state.ws.readyState !== WebSocket.OPEN && state.ws.readyState !== WebSocket.CONNECTING)) {
+        connectWs();
+      }
+      if (!state.marketWs || (state.marketWs.readyState !== WebSocket.OPEN && state.marketWs.readyState !== WebSocket.CONNECTING)) {
+        connectMarketWs();
+      }
+    }
+    document.addEventListener("visibilitychange", function () {
+      if (document.visibilityState === "visible") resumeConnections();
+    });
+    window.addEventListener("online", resumeConnections);
     window.addEventListener("beforeunload", function () {
       state.closed = true;
+      stopPolling();
       closeWs();
       closeMarketWs();
     });
@@ -2014,7 +2243,8 @@
       closeFilters: closeFilters,
       getState: function () { return state; },
       getFilters: function () { return filters; },
-      getVisibleLogicalRange: function () { return mainChart.timeScale().getVisibleLogicalRange(); }
+      getVisibleLogicalRange: function () { return mainChart.timeScale().getVisibleLogicalRange(); },
+      version: APP_VERSION
     };
 
     setView("chart");
