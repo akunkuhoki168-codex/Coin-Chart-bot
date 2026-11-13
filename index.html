@@ -1,0 +1,923 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#131722" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>PUMP/USDT Live — Tokocrypto</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23131722'/%3E%3Cpath d='M3 11 L7 6 L10 9 L13 4' stroke='%2326a69a' stroke-width='1.6' fill='none'/%3E%3C/svg%3E" />
+  <script src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
+  <style>
+    :root {
+      --bg: #131722;
+      --panel: #1e222d;
+      --elevated: #2a2e39;
+      --border: #2a2e39;
+      --text: #d1d4dc;
+      --muted: #787b86;
+      --up: #26a69a;
+      --down: #ef5350;
+      --accent: #2962ff;
+      --ema50: #ff6d00;
+      --bb: #26c6da;
+      --rsi: #ab47bc;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      height: 100%;
+      min-height: 100%;
+      min-height: 100dvh;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Trebuchet MS", "Roboto", "Ubuntu", sans-serif;
+    }
+    body {
+      display: flex;
+      flex-direction: column;
+      min-height: 100%;
+      min-height: 100dvh;
+      overflow: hidden;
+      padding-left: env(safe-area-inset-left);
+      padding-right: env(safe-area-inset-right);
+    }
+    button, input { font-family: inherit; }
+    button, .btn, .live-pill { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+    #header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: 10px 18px;
+      padding: 10px 16px 6px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg);
+    }
+    .pair {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+    .exchange { color: var(--muted); font-size: 12px; }
+    .last {
+      font-variant-numeric: tabular-nums;
+      font-size: 22px;
+      font-weight: 700;
+    }
+    .chg { font-variant-numeric: tabular-nums; font-size: 16px; font-weight: 700; }
+    .up { color: var(--up); }
+    .down { color: var(--down); }
+    .stats {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px 20px;
+      margin-left: auto;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .stats b {
+      display: block;
+      color: var(--text);
+      font-variant-numeric: tabular-nums;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .live-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      border-radius: 999px;
+      padding: 3px 9px;
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .live-pill .dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--muted);
+    }
+    .live-pill.live .dot { background: var(--up); box-shadow: 0 0 0 3px rgba(38,166,154,0.18); }
+    .live-pill.live { color: var(--up); border-color: rgba(38,166,154,0.35); }
+    .live-pill.connecting .dot, .live-pill.reconnecting .dot { background: #ffb74d; }
+    .live-pill.error .dot { background: var(--down); }
+    #toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px 10px;
+      padding: 8px 16px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg);
+    }
+    #symbol {
+      width: 132px;
+      background: var(--panel);
+      color: var(--text);
+      border: 1px solid var(--elevated);
+      border-radius: 4px;
+      padding: 6px 8px;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    #symbol:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+    .btn-row { display: flex; flex-wrap: wrap; gap: 4px; }
+    .btn {
+      background: var(--panel);
+      color: var(--text);
+      border: 1px solid transparent;
+      border-radius: 4px;
+      padding: 6px 10px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .btn:hover { border-color: var(--elevated); background: #252a35; }
+    .btn.active {
+      background: #2962ff22;
+      border-color: #2962ff88;
+      color: #9bb7ff;
+    }
+    .tog.active { color: var(--text); }
+    #legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 16px;
+      padding: 6px 16px;
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+      color: var(--muted);
+      min-height: 28px;
+    }
+    #legend strong { color: var(--text); font-weight: 600; }
+    #charts {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+    #main-chart { flex: 1; min-height: 0; }
+    #rsi-chart { height: 132px; border-top: 1px solid var(--border); }
+    #rsi-chart.hidden { display: none; }
+    #footer {
+      padding: 6px 16px 8px;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 11px;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 6px 16px;
+    }
+    #error {
+      display: none;
+      margin: 0 16px 8px;
+      padding: 8px 10px;
+      border: 1px solid rgba(239,83,80,0.4);
+      background: rgba(239,83,80,0.08);
+      color: #ff8a80;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+    #error.show { display: block; }
+
+    @media (max-width: 720px) {
+      #header {
+        padding: max(8px, env(safe-area-inset-top)) 12px 6px;
+        gap: 6px 10px;
+        align-items: center;
+      }
+      .pair { font-size: 16px; }
+      .exchange { font-size: 11px; }
+      .last { font-size: 18px; }
+      .chg { font-size: 14px; }
+      .stats {
+        margin-left: 0;
+        width: 100%;
+        gap: 8px 14px;
+      }
+      .stats b { font-size: 12px; }
+      #toolbar {
+        padding: 8px 12px;
+        gap: 8px;
+      }
+      #symbol {
+        width: min(46vw, 160px);
+        min-height: 44px;
+        padding: 8px 10px;
+        font-size: 16px; /* avoid iOS input zoom */
+        border-radius: 8px;
+      }
+      .btn {
+        min-height: 44px;
+        padding: 8px 12px;
+        font-size: 14px;
+        border-radius: 8px;
+      }
+      .live-pill {
+        min-height: 32px;
+        padding: 6px 10px;
+      }
+      #legend {
+        padding: 6px 12px;
+        font-size: 11px;
+        gap: 6px 10px;
+      }
+      #rsi-chart { height: 100px; }
+      #footer {
+        font-size: 10px;
+        padding: 6px 12px calc(8px + env(safe-area-inset-bottom));
+        gap: 4px 10px;
+      }
+      #error { margin: 0 12px 8px; }
+    }
+    @media (max-width: 720px) and (max-height: 700px) {
+      #rsi-chart { height: 84px; }
+      .exchange { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div id="header">
+    <div>
+      <span class="pair" id="pair">PUMP/USDT</span>
+      <div class="exchange">Tokocrypto · times UTC+7</div>
+    </div>
+    <span class="last" id="last">—</span>
+    <span class="chg" id="change">—</span>
+    <div class="stats">
+      <div>24h high<b id="high">—</b></div>
+      <div>24h low<b id="low">—</b></div>
+      <div>24h volume<b id="volume">—</b></div>
+      <div>Quote volume<b id="qvolume">—</b></div>
+    </div>
+    <span class="live-pill connecting" id="status"><span class="dot"></span><span id="status-text">Connecting</span></span>
+  </div>
+  <div id="toolbar">
+    <input id="symbol" value="PUMPUSDT" spellcheck="false" autocomplete="off" aria-label="Symbol" />
+    <div class="btn-row" id="tf-row"></div>
+    <div class="btn-row" style="margin-left:auto">
+      <button class="btn tog active" id="tog-ema20" type="button">EMA 20</button>
+      <button class="btn tog active" id="tog-ema50" type="button">EMA 50</button>
+      <button class="btn tog" id="tog-bb" type="button">Bollinger</button>
+      <button class="btn tog active" id="tog-rsi" type="button">RSI 14</button>
+    </div>
+  </div>
+  <div id="legend">Hover a bar for OHLCV</div>
+  <div id="error"></div>
+  <div id="charts">
+    <div id="main-chart"></div>
+    <div id="rsi-chart"></div>
+  </div>
+  <div id="footer">
+    <span>Data: Tokocrypto REST klines (history) on www.tokocrypto.site + WebSocket aggTrade, kline, and miniTicker on stream-cloud.tokocrypto.site. Current candle updates on every trade.</span>
+    <span id="footer-meta"></span>
+  </div>
+
+  <script>
+  (function () {
+    window.__pumpStatus = { ready: false, errors: [], live: false, trades: 0, symbol: "PUMPUSDT" };
+
+    function logError(err) {
+      var msg = (err && err.message) ? err.message : String(err);
+      window.__pumpStatus.errors.push(msg);
+      showError(msg);
+    }
+    window.addEventListener("error", function (e) { logError(e.error || e.message); });
+    window.addEventListener("unhandledrejection", function (e) { logError(e.reason || "unhandled rejection"); });
+
+    if (typeof LightweightCharts === "undefined") {
+      logError("TradingView Lightweight Charts failed to load from unpkg.");
+      return;
+    }
+
+    var TFS = ["1m", "5m", "15m", "1h", "4h", "1d"];
+    var INTERVAL_MS = { "1m": 60000, "5m": 300000, "15m": 900000, "1h": 3600000, "4h": 14400000, "1d": 86400000 };
+    var REST = "https://www.tokocrypto.site/api/v3";
+    var WS_HOSTS = [
+      "wss://stream-cloud.tokocrypto.site"
+    ];
+    var WS_PATHS = [
+      "/stream?streams=",
+      "/stream/stream?streams="
+    ];
+    var UP = "#26a69a";
+    var DOWN = "#ef5350";
+    var TZ = "Asia/Jakarta";
+
+    var state = {
+      symbol: "PUMPUSDT",
+      tf: "15m",
+      candles: [],
+      showEma20: true,
+      showEma50: true,
+      showBb: false,
+      showRsi: true,
+      lastTrade: null,
+      ticker: null,
+      ws: null,
+      closed: false,
+      hostIndex: 0,
+      attempt: 0,
+      retryTimer: null,
+      loadId: 0
+    };
+
+    var jakartaFull = new Intl.DateTimeFormat("en-GB", {
+      timeZone: TZ, weekday: "short", day: "2-digit", month: "short", year: "numeric",
+      hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23"
+    });
+    var jakartaHm = new Intl.DateTimeFormat("en-GB", {
+      timeZone: TZ, hour: "2-digit", minute: "2-digit", hourCycle: "h23"
+    });
+    var jakartaDayHm = new Intl.DateTimeFormat("en-GB", {
+      timeZone: TZ, day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23"
+    });
+    var jakartaDay = new Intl.DateTimeFormat("en-GB", {
+      timeZone: TZ, day: "2-digit", month: "short"
+    });
+
+    function toSec(ms) { return Math.floor(Number(ms) / 1000); }
+    function fmtTime(sec, tf) {
+      var d = new Date(sec * 1000);
+      if (tf === "1d") return jakartaDay.format(d);
+      if (tf === "1h" || tf === "4h") return jakartaDayHm.format(d);
+      return jakartaDayHm.format(d);
+    }
+    function fmtFull(sec) { return jakartaFull.format(new Date(sec * 1000)) + " (UTC+7)"; }
+    function fmtPrice(n) {
+      if (!isFinite(n)) return "—";
+      if (n >= 1000) return n.toFixed(2);
+      if (n >= 1) return n.toFixed(4);
+      if (n >= 0.1) return n.toFixed(5);
+      return n.toFixed(6);
+    }
+    function fmtQty(n) {
+      var a = Math.abs(n), s = n < 0 ? "-" : "";
+      if (a >= 1e9) return s + (a / 1e9).toFixed(2) + "B";
+      if (a >= 1e6) return s + (a / 1e6).toFixed(2) + "M";
+      if (a >= 1e3) return s + (a / 1e3).toFixed(2) + "K";
+      return s + (a >= 100 ? a.toFixed(0) : a.toFixed(2));
+    }
+    function fmtPct(n) { return (n > 0 ? "+" : "") + n.toFixed(3) + "%"; }
+    function normalizeSymbol(raw) {
+      return String(raw || "").replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+    }
+    function pairLabel(sym) {
+      var s = normalizeSymbol(sym);
+      if (s.slice(-4) === "USDT") return s.slice(0, -4) + "/USDT";
+      if (s.slice(-4) === "USDC") return s.slice(0, -4) + "/USDC";
+      if (s.slice(-3) === "IDR") return s.slice(0, -3) + "/IDR";
+      if (s.slice(-3) === "BTC") return s.slice(0, -3) + "/BTC";
+      return s;
+    }
+    function streamSymbol(sym) {
+      return normalizeSymbol(sym).toLowerCase();
+    }
+    function pricePrecision(n) {
+      if (n >= 1000) return { precision: 2, minMove: 0.01 };
+      if (n >= 1) return { precision: 4, minMove: 0.0001 };
+      if (n >= 0.1) return { precision: 5, minMove: 0.00001 };
+      return { precision: 6, minMove: 0.000001 };
+    }
+    function unwrapPayload(body) {
+      if (body && typeof body === "object" && !Array.isArray(body) && body.data != null) {
+        if (typeof body.code === "number" && body.code !== 0) {
+          throw new Error(body.msg || ("Tokocrypto error " + body.code));
+        }
+        return Array.isArray(body.data) ? body.data : (body.data.list || body.data);
+      }
+      return body;
+    }
+    function showError(msg) {
+      var el = document.getElementById("error");
+      el.textContent = msg;
+      el.classList.add("show");
+    }
+    function clearError() {
+      var el = document.getElementById("error");
+      el.textContent = "";
+      el.classList.remove("show");
+    }
+    function setStatus(kind, text) {
+      var el = document.getElementById("status");
+      el.className = "live-pill " + kind;
+      document.getElementById("status-text").textContent = text;
+      window.__pumpStatus.live = kind === "live";
+    }
+
+    var tfRow = document.getElementById("tf-row");
+    TFS.forEach(function (tf) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "btn tf-btn" + (tf === state.tf ? " active" : "");
+      b.dataset.tf = tf;
+      b.textContent = tf === "1d" ? "1D" : tf;
+      b.addEventListener("click", function () { setTimeframe(tf); });
+      tfRow.appendChild(b);
+    });
+
+    document.getElementById("tog-ema20").addEventListener("click", function () {
+      state.showEma20 = !state.showEma20;
+      this.classList.toggle("active", state.showEma20);
+      renderIndicators();
+    });
+    document.getElementById("tog-ema50").addEventListener("click", function () {
+      state.showEma50 = !state.showEma50;
+      this.classList.toggle("active", state.showEma50);
+      renderIndicators();
+    });
+    document.getElementById("tog-bb").addEventListener("click", function () {
+      state.showBb = !state.showBb;
+      this.classList.toggle("active", state.showBb);
+      renderIndicators();
+    });
+    document.getElementById("tog-rsi").addEventListener("click", function () {
+      state.showRsi = !state.showRsi;
+      this.classList.toggle("active", state.showRsi);
+      document.getElementById("rsi-chart").classList.toggle("hidden", !state.showRsi);
+      layoutCharts();
+      renderIndicators();
+    });
+
+    var symbolInput = document.getElementById("symbol");
+    symbolInput.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") commitSymbol();
+    });
+    symbolInput.addEventListener("blur", commitSymbol);
+    function commitSymbol() {
+      var next = normalizeSymbol(symbolInput.value);
+      if (!next) next = "PUMPUSDT";
+      symbolInput.value = next;
+      if (next !== state.symbol) loadSymbol(next);
+    }
+
+    var mainEl = document.getElementById("main-chart");
+    var rsiEl = document.getElementById("rsi-chart");
+    var chartOpts = {
+      autoSize: true,
+      layout: {
+        background: { type: LightweightCharts.ColorType.Solid, color: "#131722" },
+        textColor: "#d1d4dc",
+        fontFamily: "Trebuchet MS, Roboto, Ubuntu, sans-serif"
+      },
+      grid: {
+        vertLines: { color: "#1e222d" },
+        horzLines: { color: "#1e222d" }
+      },
+      crosshair: {
+        mode: LightweightCharts.CrosshairMode.Normal,
+        vertLine: { color: "#787b86", labelBackgroundColor: "#2a2e39" },
+        horzLine: { color: "#787b86", labelBackgroundColor: "#2a2e39" }
+      },
+      rightPriceScale: { borderColor: "#2a2e39" },
+      timeScale: {
+        borderColor: "#2a2e39",
+        timeVisible: true,
+        secondsVisible: false,
+        tickMarkFormatter: function (time) {
+          var sec = typeof time === "number" ? time : Date.UTC(time.year, time.month - 1, time.day) / 1000;
+          return fmtTime(sec, state.tf);
+        }
+      },
+      localization: {
+        timeFormatter: function (time) {
+          var sec = typeof time === "number" ? time : Date.UTC(time.year, time.month - 1, time.day) / 1000;
+          return fmtFull(sec);
+        }
+      }
+    };
+
+    var mainChart = LightweightCharts.createChart(mainEl, chartOpts);
+    var rsiChart = LightweightCharts.createChart(rsiEl, Object.assign({}, chartOpts, {
+      timeScale: Object.assign({}, chartOpts.timeScale, { visible: false, timeVisible: false })
+    }));
+
+    var candleSeries = mainChart.addCandlestickSeries({
+      upColor: UP, downColor: DOWN,
+      borderUpColor: UP, borderDownColor: DOWN,
+      wickUpColor: UP, wickDownColor: DOWN,
+      priceFormat: { type: "price", precision: 6, minMove: 0.000001 }
+    });
+    candleSeries.priceScale().applyOptions({ scaleMargins: { top: 0.08, bottom: 0.22 } });
+
+    var volumeSeries = mainChart.addHistogramSeries({
+      priceFormat: { type: "volume" },
+      priceScaleId: "volume",
+      lastValueVisible: false,
+      priceLineVisible: false
+    });
+    mainChart.priceScale("volume").applyOptions({
+      scaleMargins: { top: 0.82, bottom: 0 },
+      drawTicks: false
+    });
+
+    var ema20Series = mainChart.addLineSeries({ color: "#2962ff", lineWidth: 2, priceLineVisible: false, lastValueVisible: true, title: "EMA 20" });
+    var ema50Series = mainChart.addLineSeries({ color: "#ff6d00", lineWidth: 2, priceLineVisible: false, lastValueVisible: true, title: "EMA 50" });
+    var bbUpperSeries = mainChart.addLineSeries({ color: "#26c6da", lineWidth: 1, priceLineVisible: false, lastValueVisible: false, title: "BB Upper" });
+    var bbMidSeries = mainChart.addLineSeries({ color: "#26c6da", lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, priceLineVisible: false, lastValueVisible: false, title: "BB Mid" });
+    var bbLowerSeries = mainChart.addLineSeries({ color: "#26c6da", lineWidth: 1, priceLineVisible: false, lastValueVisible: false, title: "BB Lower" });
+
+    var rsiSeries = rsiChart.addLineSeries({
+      color: "#ab47bc", lineWidth: 2, priceLineVisible: false, lastValueVisible: true, title: "RSI 14"
+    });
+    rsiChart.priceScale("right").applyOptions({ scaleMargins: { top: 0.08, bottom: 0.08 } });
+    rsiSeries.createPriceLine({ price: 70, color: "#787b86", lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true, title: "70" });
+    rsiSeries.createPriceLine({ price: 30, color: "#787b86", lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true, title: "30" });
+    rsiSeries.createPriceLine({ price: 50, color: "#2a2e39", lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted, axisLabelVisible: false, title: "" });
+
+    var syncing = false;
+    function syncRange(source, target) {
+      if (syncing) return;
+      var range = source.timeScale().getVisibleLogicalRange();
+      if (!range) return;
+      syncing = true;
+      target.timeScale().setVisibleLogicalRange(range);
+      syncing = false;
+    }
+    mainChart.timeScale().subscribeVisibleLogicalRangeChange(function () { syncRange(mainChart, rsiChart); });
+    rsiChart.timeScale().subscribeVisibleLogicalRangeChange(function () { syncRange(rsiChart, mainChart); });
+
+    mainChart.subscribeCrosshairMove(function (param) {
+      renderLegend(param);
+    });
+
+    function layoutCharts() {
+      mainChart.timeScale().applyOptions({ visible: true });
+    }
+
+    function ema(closes, period) {
+      var k = 2 / (period + 1), out = [], prev = null, sum = 0;
+      for (var i = 0; i < closes.length; i++) {
+        var v = closes[i].close;
+        if (i < period - 1) { sum += v; }
+        else if (i === period - 1) { sum += v; prev = sum / period; out.push({ time: closes[i].time, value: prev }); }
+        else { prev = v * k + prev * (1 - k); out.push({ time: closes[i].time, value: prev }); }
+      }
+      return out;
+    }
+    function bollinger(closes, period, mult) {
+      var upper = [], mid = [], lower = [];
+      for (var i = 0; i < closes.length; i++) {
+        if (i < period - 1) continue;
+        var sum = 0, sq = 0, j;
+        for (j = i - period + 1; j <= i; j++) { sum += closes[j].close; sq += closes[j].close * closes[j].close; }
+        var mean = sum / period;
+        var sd = Math.sqrt(Math.max(0, sq / period - mean * mean));
+        mid.push({ time: closes[i].time, value: mean });
+        upper.push({ time: closes[i].time, value: mean + mult * sd });
+        lower.push({ time: closes[i].time, value: mean - mult * sd });
+      }
+      return { upper: upper, mid: mid, lower: lower };
+    }
+    function rsi(closes, period) {
+      if (closes.length < 2) return [];
+      var out = [], avgG = 0, avgL = 0;
+      for (var i = 1; i < closes.length; i++) {
+        var diff = closes[i].close - closes[i - 1].close;
+        var g = Math.max(0, diff), l = Math.max(0, -diff);
+        if (i <= period) {
+          avgG += g; avgL += l;
+          if (i === period) {
+            avgG /= period; avgL /= period;
+            out.push({ time: closes[i].time, value: rsiVal(avgG, avgL) });
+          }
+        } else {
+          avgG = (avgG * (period - 1) + g) / period;
+          avgL = (avgL * (period - 1) + l) / period;
+          out.push({ time: closes[i].time, value: rsiVal(avgG, avgL) });
+        }
+      }
+      return out;
+    }
+    function rsiVal(g, l) {
+      if (l === 0) return 100;
+      if (g === 0) return 0;
+      var rs = g / l;
+      return 100 - 100 / (1 + rs);
+    }
+
+    function renderIndicators() {
+      var rows = state.candles;
+      ema20Series.setData(state.showEma20 ? ema(rows, 20) : []);
+      ema50Series.setData(state.showEma50 ? ema(rows, 50) : []);
+      if (state.showBb) {
+        var bb = bollinger(rows, 20, 2);
+        bbUpperSeries.setData(bb.upper);
+        bbMidSeries.setData(bb.mid);
+        bbLowerSeries.setData(bb.lower);
+      } else {
+        bbUpperSeries.setData([]);
+        bbMidSeries.setData([]);
+        bbLowerSeries.setData([]);
+      }
+      rsiSeries.setData(state.showRsi ? rsi(rows, 14) : []);
+    }
+
+    function volumePoint(c) {
+      return { time: c.time, value: c.volume, color: c.close >= c.open ? "rgba(38,166,154,0.55)" : "rgba(239,83,80,0.55)" };
+    }
+
+    function applyBars() {
+      candleSeries.setData(state.candles.map(function (c) {
+        return { time: c.time, open: c.open, high: c.high, low: c.low, close: c.close };
+      }));
+      volumeSeries.setData(state.candles.map(volumePoint));
+      if (state.candles.length) {
+        var last = state.candles[state.candles.length - 1];
+        candleSeries.applyOptions({ priceFormat: Object.assign({ type: "price" }, pricePrecision(last.close)) });
+      }
+      renderIndicators();
+    }
+
+    function upsertLast(bar) {
+      var rows = state.candles;
+      if (!rows.length || bar.time > rows[rows.length - 1].time) {
+        rows.push(bar);
+      } else if (bar.time === rows[rows.length - 1].time) {
+        rows[rows.length - 1] = bar;
+      } else {
+        return;
+      }
+      candleSeries.update({ time: bar.time, open: bar.open, high: bar.high, low: bar.low, close: bar.close });
+      volumeSeries.update(volumePoint(bar));
+    }
+
+    function applyTrade(price, qty, tradeMs) {
+      if (!isFinite(price) || !isFinite(tradeMs) || !state.candles.length) return;
+      state.lastTrade = { t: tradeMs, price: price, qty: qty };
+      var dt = INTERVAL_MS[state.tf];
+      var openMs = Math.floor(tradeMs / dt) * dt;
+      var time = toSec(openMs);
+      var last = state.candles[state.candles.length - 1];
+      var bar;
+      if (time === last.time) {
+        bar = {
+          time: last.time, open: last.open,
+          high: Math.max(last.high, price), low: Math.min(last.low, price),
+          close: price, volume: last.volume + qty
+        };
+      } else if (time > last.time) {
+        var prev = last.close, t;
+        for (t = last.time + dt / 1000; t < time; t += dt / 1000) {
+          upsertLast({ time: t, open: prev, high: prev, low: prev, close: prev, volume: 0 });
+        }
+        bar = { time: time, open: price, high: price, low: price, close: price, volume: qty };
+      } else {
+        return;
+      }
+      upsertLast(bar);
+      renderIndicators();
+      window.__pumpStatus.trades += 1;
+    }
+
+    function applyKline(k, eventTime) {
+      var bar = {
+        time: toSec(k.t),
+        open: +k.o, high: +k.h, low: +k.l, close: +k.c,
+        volume: +k.v
+      };
+      var trade = state.lastTrade;
+      var intervalMs = INTERVAL_MS[state.tf];
+      if (trade && trade.t >= k.t && trade.t < k.t + intervalMs && eventTime !== undefined && trade.t > eventTime) {
+        bar.high = Math.max(bar.high, trade.price);
+        bar.low = Math.min(bar.low, trade.price);
+        bar.close = trade.price;
+        bar.volume += trade.qty;
+      }
+      upsertLast(bar);
+      renderIndicators();
+    }
+
+    function renderLegend(param) {
+      var el = document.getElementById("legend");
+      var bar = null;
+      if (param && param.time != null) {
+        var t = typeof param.time === "number" ? param.time : null;
+        if (t != null) {
+          for (var i = state.candles.length - 1; i >= 0; i--) {
+            if (state.candles[i].time === t) { bar = state.candles[i]; break; }
+          }
+        }
+      }
+      if (!bar && state.candles.length) bar = state.candles[state.candles.length - 1];
+      if (!bar) { el.textContent = "Hover a bar for OHLCV"; return; }
+      var chg = bar.close - bar.open;
+      var pct = bar.open ? (chg / bar.open) * 100 : 0;
+      var cls = chg >= 0 ? "up" : "down";
+      el.innerHTML =
+        "<span>" + fmtFull(bar.time) + "</span>" +
+        "<span>O <strong>" + fmtPrice(bar.open) + "</strong></span>" +
+        "<span>H <strong>" + fmtPrice(bar.high) + "</strong></span>" +
+        "<span>L <strong>" + fmtPrice(bar.low) + "</strong></span>" +
+        "<span class=\"" + cls + "\">C <strong>" + fmtPrice(bar.close) + "</strong></span>" +
+        "<span>Vol <strong>" + fmtQty(bar.volume) + "</strong></span>" +
+        "<span class=\"" + cls + "\"><strong>" + (chg >= 0 ? "+" : "") + fmtPrice(chg) + " (" + fmtPct(pct) + ")</strong></span>";
+    }
+
+    function renderHeader() {
+      var t = state.ticker || {};
+      var last = isFinite(t.last) ? t.last : (state.candles.length ? state.candles[state.candles.length - 1].close : NaN);
+      var chg = isFinite(t.changePct) ? t.changePct : NaN;
+      document.getElementById("pair").textContent = pairLabel(state.symbol);
+      document.title = pairLabel(state.symbol) + " Live — Tokocrypto";
+      var lastEl = document.getElementById("last");
+      lastEl.textContent = fmtPrice(last);
+      lastEl.className = "last " + (chg >= 0 ? "up" : "down");
+      var chgEl = document.getElementById("change");
+      chgEl.textContent = isFinite(chg) ? fmtPct(chg) : "—";
+      chgEl.className = "chg " + (chg >= 0 ? "up" : "down");
+      document.getElementById("high").textContent = fmtPrice(t.high);
+      document.getElementById("low").textContent = fmtPrice(t.low);
+      document.getElementById("volume").textContent = isFinite(t.volume) ? fmtQty(t.volume) + " " + state.symbol.replace(/USDT$/, "") : "—";
+      document.getElementById("qvolume").textContent = isFinite(t.quoteVolume) ? fmtQty(t.quoteVolume) + " USDT" : "—";
+    }
+
+    function applyTicker(partial) {
+      state.ticker = Object.assign({}, state.ticker || {}, partial);
+      if (state.lastTrade && isFinite(state.lastTrade.price)) {
+        state.ticker.last = state.lastTrade.price;
+        if (isFinite(state.ticker.high)) state.ticker.high = Math.max(state.ticker.high, state.lastTrade.price);
+        if (isFinite(state.ticker.low)) state.ticker.low = Math.min(state.ticker.low, state.lastTrade.price);
+        if (isFinite(state.ticker.open) && state.ticker.open !== 0) {
+          state.ticker.change = state.ticker.last - state.ticker.open;
+          state.ticker.changePct = (state.ticker.change / state.ticker.open) * 100;
+        }
+      }
+      renderHeader();
+    }
+
+    async function fetchHistory(symbol, tf, loadId) {
+      var kUrl = REST + "/klines?symbol=" + encodeURIComponent(symbol) + "&interval=" + encodeURIComponent(tf) + "&limit=1000";
+      var tUrl = REST + "/ticker/24hr?symbol=" + encodeURIComponent(symbol);
+      var rs = await Promise.all([fetch(kUrl), fetch(tUrl)]);
+      if (loadId !== state.loadId) return;
+      if (!rs[0].ok) {
+        var errText = await rs[0].text();
+        throw new Error("Tokocrypto klines " + rs[0].status + (errText ? ": " + errText.slice(0, 180) : ""));
+      }
+      var raw = unwrapPayload(await rs[0].json());
+      var tick = rs[1].ok ? unwrapPayload(await rs[1].json()) : null;
+      if (loadId !== state.loadId) return;
+      if (!Array.isArray(raw)) throw new Error("Unexpected klines response from Tokocrypto");
+      state.candles = raw.map(function (r) {
+        return { time: toSec(r[0]), open: +r[1], high: +r[2], low: +r[3], close: +r[4], volume: +r[5] };
+      });
+      applyBars();
+      mainChart.timeScale().fitContent();
+      renderLegend(null);
+      if (tick) {
+        applyTicker({
+          last: +tick.lastPrice,
+          change: +tick.priceChange,
+          changePct: +tick.priceChangePercent,
+          high: +tick.highPrice,
+          low: +tick.lowPrice,
+          open: +tick.openPrice,
+          volume: +tick.volume,
+          quoteVolume: +tick.quoteVolume
+        });
+      } else if (state.candles.length) {
+        applyTicker({ last: state.candles[state.candles.length - 1].close });
+      }
+      document.getElementById("footer-meta").textContent =
+        state.candles.length + " " + tf + " candles · " + pairLabel(symbol) + " · " + fmtFull(Math.floor(Date.now() / 1000));
+    }
+
+    function streamList(symbol, tf) {
+      var s = streamSymbol(symbol);
+      return [s + "@aggTrade", s + "@kline_" + tf, s + "@miniTicker"];
+    }
+    function streamUrl(symbol, tf, host, pathPrefix) {
+      return host + pathPrefix + streamList(symbol, tf).join("/");
+    }
+
+    function closeWs() {
+      if (state.retryTimer) { clearTimeout(state.retryTimer); state.retryTimer = null; }
+      if (state.ws) {
+        var ws = state.ws;
+        state.ws = null;
+        try { ws.onclose = null; ws.onerror = null; ws.onmessage = null; ws.close(); } catch (e) {}
+      }
+    }
+
+    function scheduleReconnect() {
+      if (state.closed) return;
+      setStatus("reconnecting", "Reconnecting");
+      var wait = Math.min(10000, 400 * Math.pow(2, state.attempt));
+      state.attempt += 1;
+      state.hostIndex = state.hostIndex + 1;
+      state.retryTimer = setTimeout(connectWs, wait);
+    }
+
+    function connectWs() {
+      if (state.closed) return;
+      if (typeof WebSocket === "undefined") {
+        setStatus("error", "No WebSocket");
+        showError("This browser does not support WebSocket.");
+        return;
+      }
+      var urls = [];
+      WS_HOSTS.forEach(function (host) {
+        WS_PATHS.forEach(function (pathPrefix) {
+          urls.push(streamUrl(state.symbol, state.tf, host, pathPrefix));
+        });
+      });
+      var url = urls[state.hostIndex % urls.length];
+      var ws;
+      try { ws = new WebSocket(url); }
+      catch (e) { scheduleReconnect(); return; }
+      state.ws = ws;
+      ws.onopen = function () {
+        state.attempt = 0;
+        clearError();
+      };
+      ws.onmessage = function (ev) {
+        var msg;
+        try { msg = JSON.parse(ev.data); } catch (e) { return; }
+        var data = msg.data || msg;
+        if (!data || typeof data !== "object") return;
+        setStatus("live", "Live");
+        var stream = msg.stream || "";
+        if (stream.indexOf("@aggTrade") !== -1 || data.e === "aggTrade") {
+          applyTrade(+data.p, +data.q, +data.T);
+          applyTicker({ last: +data.p });
+          return;
+        }
+        if (stream.indexOf("@kline_") !== -1 || data.e === "kline") {
+          if (data.k && data.k.i === state.tf) applyKline(data.k, data.E);
+          return;
+        }
+        if (stream.indexOf("@miniTicker") !== -1 || stream.indexOf("@ticker") !== -1 || data.e === "24hrMiniTicker" || data.e === "24hrTicker") {
+          var lastPx = data.c != null ? +data.c : +data.lastPrice;
+          var openPx = data.o != null ? +data.o : +data.openPrice;
+          var change = isFinite(openPx) ? lastPx - openPx : +data.p;
+          var changePct = isFinite(openPx) && openPx !== 0 ? (change / openPx) * 100 : +data.P;
+          applyTicker({
+            last: lastPx,
+            change: change,
+            changePct: changePct,
+            high: data.h != null ? +data.h : +data.highPrice,
+            low: data.l != null ? +data.l : +data.lowPrice,
+            open: openPx,
+            volume: data.v != null ? +data.v : +data.volume,
+            quoteVolume: data.q != null ? +data.q : +data.quoteVolume
+          });
+        }
+      };
+      ws.onerror = function () {};
+      ws.onclose = function () {
+        if (state.ws === ws) state.ws = null;
+        if (!state.closed) scheduleReconnect();
+      };
+    }
+
+    async function loadSymbol(symbol, tf) {
+      state.symbol = symbol;
+      if (tf) state.tf = tf;
+      window.__pumpStatus.symbol = state.symbol;
+      document.querySelectorAll(".tf-btn").forEach(function (b) {
+        b.classList.toggle("active", b.dataset.tf === state.tf);
+      });
+      document.getElementById("pair").textContent = pairLabel(state.symbol);
+      state.lastTrade = null;
+      state.ticker = null;
+      state.candles = [];
+      state.loadId += 1;
+      var loadId = state.loadId;
+      closeWs();
+      state.closed = false;
+      setStatus("connecting", "Connecting");
+      try {
+        await fetchHistory(state.symbol, state.tf, loadId);
+        if (loadId !== state.loadId) return;
+        clearError();
+        connectWs();
+      } catch (e) {
+        logError(e);
+        setStatus("error", "Error");
+      }
+    }
+
+    function setTimeframe(tf) {
+      if (tf === state.tf) return;
+      loadSymbol(state.symbol, tf);
+    }
+
+    window.addEventListener("resize", layoutCharts);
+    window.addEventListener("beforeunload", function () {
+      state.closed = true;
+      closeWs();
+    });
+
+    window.__pumpStatus.ready = true;
+    loadSymbol(state.symbol, state.tf);
+  })();
+  </script>
+</body>
+</html>
