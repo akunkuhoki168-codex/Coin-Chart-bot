@@ -239,9 +239,9 @@
       font-variant-numeric: tabular-nums;
       color: var(--muted);
       min-height: 22px;
-      white-space: nowrap;
+      line-height: 1.35;
+      max-height: 2.8em;
       overflow: hidden;
-      text-overflow: ellipsis;
       flex: 0 0 auto;
     }
     #legend strong { color: var(--text); font-weight: 600; }
@@ -596,7 +596,7 @@
   </style>
 </head>
 <body>
-  <!-- coin-chart v2 binance-all-pairs reversal smartphone-first -->
+  <!-- coin-chart v3 tighter markers default zoom -->
   <div id="app">
     <header id="header">
       <div id="header-inner">
@@ -744,28 +744,40 @@
       { id: "bullEngulf", name: "Bullish Engulfing", short: "Eng", dir: "bull" },
       { id: "bearEngulf", name: "Bearish Engulfing", short: "Eng", dir: "bear" },
       { id: "hammer", name: "Hammer", short: "Hmr", dir: "bull" },
-      { id: "invHammer", name: "Inverted Hammer", short: "InvH", dir: "bull" },
-      { id: "shootingStar", name: "Shooting Star", short: "Star", dir: "bear" },
-      { id: "hangingMan", name: "Hanging Man", short: "Hang", dir: "bear" },
-      { id: "doji", name: "Doji", short: "Doji", dir: "both" },
-      { id: "dragonfly", name: "Dragonfly Doji", short: "Dfly", dir: "bull" },
-      { id: "gravestone", name: "Gravestone Doji", short: "Grav", dir: "bear" },
-      { id: "morningStar", name: "Morning Star", short: "Morn", dir: "bull" },
+      { id: "invHammer", name: "Inverted Hammer", short: "Inv", dir: "bull" },
+      { id: "shootingStar", name: "Shooting Star", short: "Str", dir: "bear" },
+      { id: "hangingMan", name: "Hanging Man", short: "Hng", dir: "bear" },
+      { id: "doji", name: "Doji", short: "Doj", dir: "both" },
+      { id: "dragonfly", name: "Dragonfly Doji", short: "Dfl", dir: "bull" },
+      { id: "gravestone", name: "Gravestone Doji", short: "Grv", dir: "bear" },
+      { id: "morningStar", name: "Morning Star", short: "Mrn", dir: "bull" },
       { id: "eveningStar", name: "Evening Star", short: "Eve", dir: "bear" },
-      { id: "piercing", name: "Piercing Line", short: "Pier", dir: "bull" },
-      { id: "darkCloud", name: "Dark Cloud Cover", short: "Dark", dir: "bear" },
-      { id: "tweezerBottom", name: "Tweezer Bottom", short: "TwzB", dir: "bull" },
-      { id: "tweezerTop", name: "Tweezer Top", short: "TwzT", dir: "bear" }
+      { id: "piercing", name: "Piercing Line", short: "Prc", dir: "bull" },
+      { id: "darkCloud", name: "Dark Cloud Cover", short: "Drk", dir: "bear" },
+      { id: "tweezerBottom", name: "Tweezer Bottom", short: "TwB", dir: "bull" },
+      { id: "tweezerTop", name: "Tweezer Top", short: "TwT", dir: "bear" }
     ];
     var PATTERN_MAP = {};
     PATTERNS.forEach(function (p) { PATTERN_MAP[p.id] = p; });
+    var PATTERN_PRIORITY = {
+      morningStar: 100, eveningStar: 100,
+      bullEngulf: 90, bearEngulf: 90,
+      piercing: 80, darkCloud: 80,
+      hammer: 70, hangingMan: 70, invHammer: 70, shootingStar: 70,
+      tweezerBottom: 50, tweezerTop: 50,
+      dragonfly: 40, gravestone: 40, doji: 30
+    };
 
     function defaultFilters() {
       var on = {};
       PATTERNS.forEach(function (p) { on[p.id] = true; });
+      on.doji = false;
+      on.dragonfly = false;
+      on.gravestone = false;
       return {
-        patterns: on, side: "both", trendEma: false, trendPrior: false,
-        trendN: 5, rsiZone: false, volSma: false, showForming: true, scan: true
+        patterns: on, side: "both", trendEma: false, trendPrior: true,
+        trendN: 5, rsiZone: false, volSma: false, showForming: true, scan: true,
+        showLabels: false, v: 3
       };
     }
     function loadJson(key, fallback) {
@@ -786,10 +798,19 @@
           PATTERNS.forEach(function (p) {
             if (typeof savedFilters.patterns[p.id] === "boolean") filters.patterns[p.id] = savedFilters.patterns[p.id];
           });
-        } else if (typeof savedFilters[k] !== "undefined") {
+        } else if (k !== "v" && typeof savedFilters[k] !== "undefined") {
           filters[k] = savedFilters[k];
         }
       });
+      if (!savedFilters.v || savedFilters.v < 3) {
+        filters.trendPrior = true;
+        filters.showLabels = false;
+        filters.patterns.doji = false;
+        filters.patterns.dragonfly = false;
+        filters.patterns.gravestone = false;
+        filters.v = 3;
+        saveJson(LS.filters, filters);
+      }
     }
 
     var savedInd = loadJson(LS.indicators, { showEma20: true, showEma50: true, showBb: false, showRsi: true });
@@ -969,12 +990,13 @@
       });
       html += "</div></div>";
       html += "<div><div class=\"filt-label\">Confirmation (optional)</div>";
-      html += checkRow("conf-ema", "Trend context (EMA20 / EMA50)", filters.trendEma);
-      html += checkRow("conf-prior", "Prior N-candle trend", filters.trendPrior);
+      html += checkRow("conf-prior", "Trend context (bullish after down-trend, bearish after up-trend)", filters.trendPrior);
+      html += checkRow("conf-ema", "Also require price vs EMA20 / EMA50", filters.trendEma);
       html += "<div class=\"num-row\">N = <input id=\"conf-n\" type=\"number\" min=\"3\" max=\"20\" value=\"" + (filters.trendN || 5) + "\" /> candles</div>";
       html += checkRow("conf-rsi", "RSI oversold &lt; 30 / overbought &gt; 70", filters.rsiZone);
       html += checkRow("conf-vol", "Volume above 20-SMA", filters.volSma);
       html += checkRow("conf-forming", "Flag the forming candle", filters.showForming);
+      html += checkRow("conf-labels", "Show labels on chart markers (1–3 letter codes)", filters.showLabels);
       html += checkRow("conf-scan", "Scan top 50 coins for fresh signals", filters.scan);
       html += "</div>";
       html += "<p class=\"hint\">Times are UTC+7 (Asia/Jakarta). Patterns are detected on closed candles of the current timeframe. Data: Binance Spot REST + WebSocket (aggTrade, kline, !miniTicker@arr).</p>";
@@ -1028,6 +1050,10 @@
       bindCheck("conf-rsi", "rsiZone", true);
       bindCheck("conf-vol", "volSma", true);
       bindCheck("conf-forming", "showForming", false);
+      var labEl = host.querySelector("#conf-labels");
+      if (labEl) labEl.addEventListener("change", function () {
+        filters.showLabels = labEl.checked; persistFilters(); refreshSignals();
+      });
       var nEl = host.querySelector("#conf-n");
       if (nEl) nEl.addEventListener("change", function () {
         var n = Math.max(3, Math.min(20, parseInt(nEl.value, 10) || 5));
@@ -1079,6 +1105,7 @@
       rightPriceScale: { borderColor: "#2b3139" },
       timeScale: {
         borderColor: "#2b3139", timeVisible: true, secondsVisible: false,
+        rightOffset: 3, minBarSpacing: 0.5,
         tickMarkFormatter: function (time) {
           var sec = typeof time === "number" ? time : Date.UTC(time.year, time.month - 1, time.day) / 1000;
           return fmtTime(sec, state.tf);
@@ -1135,6 +1162,30 @@
     rsiChart.timeScale().subscribeVisibleLogicalRangeChange(function () { syncRange(rsiChart, mainChart); });
     mainChart.subscribeCrosshairMove(function (param) { renderLegend(param); });
     function layoutCharts() { mainChart.timeScale().applyOptions({ visible: true }); }
+    function defaultVisibleBars() { return isDesktop() ? 150 : 80; }
+    function showRecentRange() {
+      var n = state.candles.length;
+      if (!n) return;
+      var bars = defaultVisibleBars();
+      window.__pumpStatus.visibleBars = bars;
+      function apply() {
+        if (!state.candles.length) return;
+        var nn = state.candles.length;
+        var range = { from: Math.max(-0.2, nn - bars), to: nn - 1 + 3 };
+        var prev = syncing;
+        syncing = true;
+        try {
+          mainChart.timeScale().setVisibleLogicalRange(range);
+          rsiChart.timeScale().setVisibleLogicalRange(range);
+        } catch (e) {}
+        syncing = prev;
+      }
+      apply();
+      requestAnimationFrame(function () {
+        apply();
+        setTimeout(apply, 80);
+      });
+    }
 
     function ema(closes, period) {
       var k = 2 / (period + 1), out = [], prev = null, sum = 0, i, v;
@@ -1305,9 +1356,19 @@
       el.innerHTML = "<span>" + fmtFull(bar.time) + "</span>  O <strong>" + fmtPrice(bar.open) + "</strong>  H <strong>" +
         fmtPrice(bar.high) + "</strong>  L <strong>" + fmtPrice(bar.low) + "</strong>  <span class=\"" + cls +
         "\">C <strong>" + fmtPrice(bar.close) + "</strong></span>  Vol <strong>" + fmtQty(bar.volume) +
-        "</strong>  <span class=\"" + cls + "\"><strong>" + (chg >= 0 ? "+" : "") + fmtPrice(chg) + " (" + fmtPct(pct) + ")</strong></span>";
+        "</strong>  <span class=\"" + cls + "\"><strong>" + (chg >= 0 ? "+" : "") + fmtPrice(chg) + " (" + fmtPct(pct) + ")</strong></span>" +
+        legendSignals(bar.time);
     }
-    function renderHeader() {
+    function legendSignals(t) {
+      var hits = (state.signals || []).filter(function (s) { return s.time === t; });
+      if (!hits.length) return "";
+      hits.sort(function (a, b) { return (PATTERN_PRIORITY[b.id] || 0) - (PATTERN_PRIORITY[a.id] || 0); });
+      return "  " + hits.map(function (s) {
+        return "<span class=\"" + s.dir + "\"><strong>" + (s.dir === "bull" ? "▲ " : "▼ ") + esc(s.name) +
+          (s.forming ? " (forming)" : "") + "</strong></span>";
+      }).join(" · ");
+    }
+        function renderHeader() {
       var t = state.ticker || {};
       var last = isFinite(t.last) ? t.last : (state.candles.length ? state.candles[state.candles.length - 1].close : NaN);
       var chg = isFinite(t.changePct) ? t.changePct : NaN;
@@ -1488,27 +1549,27 @@
     function applyMarkers(sigs) {
       var byTime = {};
       sigs.forEach(function (s) {
-        var key = s.time + ":" + s.dir;
-        if (!byTime[key]) byTime[key] = Object.assign({}, s);
-        else {
-          byTime[key].short = byTime[key].short + "+" + s.short;
-          byTime[key].name = byTime[key].name + " + " + s.name;
+        var pri = PATTERN_PRIORITY[s.id] || 0;
+        var cur = byTime[s.time];
+        if (!cur || pri > cur.pri) {
+          byTime[s.time] = Object.assign({ pri: pri }, s);
         }
       });
       var markers = Object.keys(byTime).map(function (k) {
         var s = byTime[k];
-        return {
+        var mk = {
           time: s.time,
           position: s.dir === "bull" ? "belowBar" : "aboveBar",
           color: s.forming ? (s.dir === "bull" ? "#26a69a" : "#ef9a9a") : (s.dir === "bull" ? UP : DOWN),
-          shape: s.dir === "bull" ? "arrowUp" : "arrowDown",
-          text: s.short + (s.forming ? "…" : "")
+          shape: s.dir === "bull" ? "arrowUp" : "arrowDown"
         };
+        if (filters.showLabels) mk.text = s.short;
+        return mk;
       });
       markers.sort(function (a, b) { return a.time - b.time; });
-      if (markers.length > 60) markers = markers.slice(markers.length - 60);
       candleSeries.setMarkers(markers);
       window.__pumpStatus.markers = markers.length;
+      window.__pumpStatus.labelsOn = !!filters.showLabels;
     }
     function renderSignalList(sigs) {
       var host = document.getElementById("signal-list");
@@ -1562,7 +1623,7 @@
         return { time: toSec(r[0]), open: +r[1], high: +r[2], low: +r[3], close: +r[4], volume: +r[5] };
       });
       applyBars();
-      mainChart.timeScale().fitContent();
+      showRecentRange();
       renderLegend(null);
       if (tick) {
         applyTicker({
@@ -1952,7 +2013,8 @@
       openFilters: openFilters,
       closeFilters: closeFilters,
       getState: function () { return state; },
-      getFilters: function () { return filters; }
+      getFilters: function () { return filters; },
+      getVisibleLogicalRange: function () { return mainChart.timeScale().getVisibleLogicalRange(); }
     };
 
     setView("chart");
