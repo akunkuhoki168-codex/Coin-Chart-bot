@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0b0e11" />
-  <meta name="app-version" content="5.1" />
+  <meta name="app-version" content="5.2" />
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta name="mobile-web-app-capable" content="yes" />
@@ -12,7 +12,28 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>PUMP/USDT — Binance Spot</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230b0e11'/%3E%3Cpath d='M3 11 L7 6 L10 9 L13 4' stroke='%230ecb81' stroke-width='1.6' fill='none'/%3E%3C/svg%3E" />
-  <script src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js?v=5.1"></script>
+  <script src="vendor/lightweight-charts.standalone.production.js?v=5.2"></script>
+  <script>
+    window.__chartLib = { tried: ["vendor"], ok: null };
+    if (typeof LightweightCharts !== "undefined") window.__chartLib.ok = "vendor";
+    else {
+      window.__chartLib.tried.push("jsdelivr");
+      document.write('<script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"><\/script>');
+    }
+  </script>
+  <script>
+    if (typeof LightweightCharts === "undefined") {
+      window.__chartLib.tried.push("unpkg");
+      document.write('<script src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"><\/script>');
+    } else if (!window.__chartLib.ok) {
+      window.__chartLib.ok = window.__chartLib.tried[window.__chartLib.tried.length - 1] || "cdn";
+    }
+  </script>
+  <script>
+    if (typeof LightweightCharts !== "undefined" && !window.__chartLib.ok) {
+      window.__chartLib.ok = window.__chartLib.tried[window.__chartLib.tried.length - 1] || "cdn";
+    }
+  </script>
   <style>
     :root {
       --bg: #0b0e11;
@@ -156,6 +177,30 @@
     .live-pill.connecting .dot, .live-pill.reconnecting .dot { background: var(--accent); }
     .live-pill.error { color: var(--down); }
     .live-pill.error .dot { background: var(--down); }
+    .live-pill { cursor: pointer; }
+    #diag {
+      display: none;
+      margin: 0 12px 8px;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--muted);
+      border-radius: 8px;
+      font-size: 11px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      word-break: break-word;
+      flex: 0 0 auto;
+      max-height: 40vh;
+      overflow: auto;
+    }
+    #diag.show { display: block !important; }
+    #btn-reset-settings {
+      margin-top: 8px;
+      min-height: 44px;
+      width: 100%;
+      border-radius: 10px;
+    }
     .icon-btn {
       flex: 0 0 auto;
       width: 40px;
@@ -601,7 +646,7 @@
   </style>
 </head>
 <body>
-  <!-- coin-chart v5.1 stricter-signals -->
+  <!-- coin-chart v5.2 settings-migration-fix failover -->
   <div id="app">
     <header id="header">
       <div id="header-inner">
@@ -633,6 +678,7 @@
       </div>
       <div id="legend">Hover a bar for OHLCV</div>
       <div id="error"></div>
+      <div id="diag" hidden></div>
       <div id="charts">
         <div id="main-chart"></div>
         <div id="rsi-chart"></div>
@@ -670,7 +716,7 @@
         <div class="sheet-title-row">
           <div class="sheet-title">Settings</div>
         </div>
-        <div class="sheet-sub">Indicators, reversal patterns, and confirmation filters<br />Version 5.1 · Stricter signal defaults</div>
+        <div class="sheet-sub">Indicators, reversal patterns, and confirmation filters<br />Version 5.2 · Settings recovery + failover</div>
       </div>
       <div class="list" id="settings-body"></div>
     </section>
@@ -711,25 +757,57 @@
       ready: false, errors: [], live: false, trades: 0, symbol: "PUMPUSDT",
       coinsLoaded: false, coinCount: 0, marketLive: false,
       signals: 0, markers: 0, view: "chart", scanDone: 0, switched: [],
-      version: "5.1", mode: null, restBase: null, wsHost: null, polls: 0
+      version: "5.2", mode: null, restBase: null, wsHost: null, polls: 0,
+      lastError: null, restTried: [], restFailed: [], wsTried: [], wsState: "idle",
+      lib: (window.__chartLib && window.__chartLib.ok) || null,
+      connectSince: Date.now()
     };
 
+    function setStatusSafe(kind, text) {
+      try {
+        var el = document.getElementById("status");
+        var tx = document.getElementById("status-text");
+        if (el) el.className = "live-pill " + kind;
+        if (tx) tx.textContent = text;
+        window.__pumpStatus.live = kind === "live";
+      } catch (e) {}
+    }
     function logError(err) {
       var msg = (err && err.message) ? err.message : String(err);
-      window.__pumpStatus.errors.push(msg);
-      showError(msg);
+      try {
+        if (window.__pumpStatus.errors.length > 30) window.__pumpStatus.errors.shift();
+        window.__pumpStatus.errors.push(msg);
+        window.__pumpStatus.lastError = msg;
+      } catch (e) {}
+      try { showError(msg); } catch (e2) {}
+      if (!window.__pumpStatus.live && !window.__pumpStatus.ready) {
+        setStatusSafe("error", "Error");
+      }
     }
     window.addEventListener("error", function (e) { logError(e.error || e.message); });
     window.addEventListener("unhandledrejection", function (e) { logError(e.reason || "unhandled rejection"); });
+    setTimeout(function () {
+      if (window.__pumpStatus && window.__pumpStatus.live) return;
+      var tx = document.getElementById("status-text");
+      var cur = tx ? tx.textContent : "";
+      if (window.__pumpStatus.live) return;
+      if (!cur || cur === "Connecting" || cur.indexOf("Connecting") === 0) {
+        var reason = window.__pumpStatus.lastError || (!window.__pumpStatus.restBase ? "no REST yet" : "waiting for data");
+        if (String(reason).length > 42) reason = String(reason).slice(0, 42) + "…";
+        setStatusSafe("reconnecting", "Offline – retrying (" + reason + ")");
+      }
+    }, 10000);
 
     if (typeof LightweightCharts === "undefined") {
-      logError("TradingView Lightweight Charts failed to load from unpkg.");
+      logError("Chart library failed to load (vendor / jsdelivr / unpkg).");
+      setStatusSafe("error", "Error – chart library");
       return;
     }
+    if (window.__chartLib && window.__chartLib.ok) window.__pumpStatus.lib = window.__chartLib.ok;
 
     var TFS = ["1m", "5m", "15m", "1h", "4h", "1d"];
     var INTERVAL_MS = { "1m": 60000, "5m": 300000, "15m": 900000, "1h": 3600000, "4h": 14400000, "1d": 86400000 };
-    var APP_VERSION = "5.1";
+    var APP_VERSION = "5.2";
     var SSL_UP = "#00c3ff";
     var SSL_DOWN = "#ff0062";
     var SSL_GRAY = "#787b86";
@@ -796,6 +874,10 @@
       sslExitBull: 55, sslExitBear: 55,
       dragonfly: 40, gravestone: 40, doji: 30
     };
+    var HIGH_PATTERN_IDS = {
+      bullEngulf: true, bearEngulf: true, morningStar: true, eveningStar: true,
+      hammer: true, shootingStar: true
+    };
 
     function defaultFilters() {
       var on = {};
@@ -840,44 +922,76 @@
       try { localStorage.setItem(key, JSON.stringify(val)); } catch (e) {}
     }
 
-    var savedFilters = loadJson(LS.filters, null);
-    var filters = defaultFilters();
-    if (savedFilters && typeof savedFilters === "object") {
-      Object.keys(filters).forEach(function (k) {
-        if (k === "patterns" && savedFilters.patterns) {
-          PATTERNS.forEach(function (p) {
-            if (typeof savedFilters.patterns[p.id] === "boolean") filters.patterns[p.id] = savedFilters.patterns[p.id];
-          });
-        } else if (k !== "v" && typeof savedFilters[k] !== "undefined") {
-          filters[k] = savedFilters[k];
+    function isPlainObject(v) {
+      return !!v && typeof v === "object" && !Array.isArray(v);
+    }
+    function deepMerge(base, over) {
+      var out = {}, k;
+      if (isPlainObject(base)) {
+        for (k in base) {
+          if (!Object.prototype.hasOwnProperty.call(base, k)) continue;
+          out[k] = isPlainObject(base[k]) ? deepMerge(base[k], {}) : base[k];
         }
-      });
-      if (!savedFilters.v || savedFilters.v < 3) {
-        filters.trendPrior = true;
-        filters.showLabels = false;
-        filters.patterns.doji = false;
-        filters.patterns.dragonfly = false;
-        filters.patterns.gravestone = false;
       }
-      if (!savedFilters.v || savedFilters.v < 5) {
-        filters.sslAgree = true;
-        filters.sslN = 3;
-        filters.rangeFilter = true;
-        filters.rangeAdx = true;
-        filters.rangeChop = true;
-        filters.rangeChannel = true;
-        filters.rangeShade = true;
-        if (typeof filters.patterns.sslExitBull === "undefined") filters.patterns.sslExitBull = false;
-        if (typeof filters.patterns.sslExitBear === "undefined") filters.patterns.sslExitBear = false;
+      if (isPlainObject(over)) {
+        for (k in over) {
+          if (!Object.prototype.hasOwnProperty.call(over, k)) continue;
+          if (isPlainObject(base[k]) && isPlainObject(over[k])) out[k] = deepMerge(base[k], over[k]);
+          else if (typeof over[k] !== "undefined") out[k] = over[k];
+        }
       }
-      if (!savedFilters.v || savedFilters.v < 6) {
+      return out;
+    }
+    function normalizePatterns(raw, fallback) {
+      var out = {}, i, id, src = isPlainObject(raw) ? raw : {};
+      fallback = isPlainObject(fallback) ? fallback : {};
+      for (i = 0; i < PATTERNS.length; i++) {
+        id = PATTERNS[i].id;
+        if (typeof src[id] === "boolean") out[id] = src[id];
+        else out[id] = !!fallback[id];
+      }
+      return out;
+    }
+    function loadAndMigrateFilters() {
+      var defaults = defaultFilters(), saved = null, merged, v;
+      try { saved = loadJson(LS.filters, null); } catch (e) { saved = null; }
+      if (!saved || !isPlainObject(saved)) return { filters: defaults, saved: null, v: 6 };
+      merged = deepMerge(defaults, saved);
+      merged.patterns = normalizePatterns(saved.patterns, defaults.patterns);
+      if (typeof merged.side !== "string") merged.side = "both";
+      v = Number(saved.v);
+      if (!isFinite(v)) v = 0;
+      if (v < 3) {
+        merged.trendPrior = true;
+        merged.showLabels = false;
+        merged.patterns.doji = false;
+        merged.patterns.dragonfly = false;
+        merged.patterns.gravestone = false;
+      }
+      return { filters: merged, saved: saved, v: v };
+    }
+    var filters = defaultFilters();
+    try {
+      var loaded = loadAndMigrateFilters();
+      filters = loaded.filters;
+      if (loaded.v < 6) {
         applyStrictness("high", false);
         filters.v = 6;
         saveJson(LS.filters, filters);
       }
+    } catch (migErr) {
+      filters = defaultFilters();
+      try { applyStrictness("high", false); } catch (e2) {}
+      filters.v = 6;
+      try { saveJson(LS.filters, filters); } catch (e3) {}
+      try { logError("Settings were reset: " + ((migErr && migErr.message) ? migErr.message : migErr)); } catch (e4) {}
     }
 
-    var savedInd = loadJson(LS.indicators, { showEma20: true, showEma50: true, showBb: false, showRsi: true, showSslBase: true, showSsl1: true, showSsl2: false, showSslExit: false, showSslAtr: false });
+    var savedInd = { showEma20: true, showEma50: true, showBb: false, showRsi: true, showSslBase: true, showSsl1: true, showSsl2: false, showSslExit: false, showSslAtr: false };
+    try {
+      var loadedInd = loadJson(LS.indicators, null);
+      if (loadedInd && typeof loadedInd === "object") savedInd = loadedInd;
+    } catch (e) {}
     var savedSymbol = "PUMPUSDT";
     try {
       var lsSym = localStorage.getItem(LS.symbol);
@@ -922,8 +1036,26 @@
     if (state.restBase) window.__pumpStatus.restBase = state.restBase;
 
     function fetchWithTimeout(url, timeout) {
+      timeout = timeout || REST_TIMEOUT;
+      if (typeof AbortController === "undefined") {
+        return new Promise(function (resolve, reject) {
+          var settled = false, timer;
+          timer = setTimeout(function () {
+            if (settled) return;
+            settled = true;
+            reject(new Error("timeout " + timeout + "ms " + url));
+          }, timeout);
+          fetch(url, { cache: "no-store" }).then(function (res) {
+            if (settled) return;
+            settled = true; clearTimeout(timer); resolve(res);
+          }, function (err) {
+            if (settled) return;
+            settled = true; clearTimeout(timer); reject(err);
+          });
+        });
+      }
       var ctrl = new AbortController();
-      var timer = setTimeout(function () { try { ctrl.abort(); } catch (e) {} }, timeout || REST_TIMEOUT);
+      var timer = setTimeout(function () { try { ctrl.abort(); } catch (e) {} }, timeout);
       return fetch(url, { signal: ctrl.signal, cache: "no-store" }).then(function (res) {
         clearTimeout(timer);
         return res;
@@ -947,18 +1079,25 @@
     }
     async function restGet(path, timeout) {
       var bases = restBases();
-      var lastErr = null, i, url, res;
+      var lastErr = null, i, url, res, st = window.__pumpStatus;
+      if (st) {
+        st.restTried = [];
+        st.restFailed = [];
+      }
       for (i = 0; i < bases.length; i++) {
         url = bases[i] + "/api/v3" + path;
+        if (st && st.restTried.indexOf(bases[i]) === -1) st.restTried.push(bases[i]);
         try {
           res = await fetchWithTimeout(url, timeout || REST_TIMEOUT);
           if (res.ok) {
             rememberRestBase(bases[i]);
             return res;
           }
-          lastErr = new Error("HTTP " + res.status + " " + url);
+          lastErr = new Error("HTTP " + res.status + " " + bases[i]);
+          if (st) st.restFailed.push(bases[i] + " HTTP " + res.status);
         } catch (e) {
           lastErr = e;
+          if (st) st.restFailed.push(bases[i] + " " + ((e && e.message) ? e.message : e));
         }
       }
       throw lastErr || new Error("All Binance REST bases failed for " + path);
@@ -1031,10 +1170,45 @@
       el.classList.remove("show");
     }
     function setStatus(kind, text) {
-      var el = document.getElementById("status");
-      el.className = "live-pill " + kind;
-      document.getElementById("status-text").textContent = text;
-      window.__pumpStatus.live = kind === "live";
+      setStatusSafe(kind, text);
+      if (kind === "connecting") window.__pumpStatus.connectSince = Date.now();
+    }
+    function diagText() {
+      var st = window.__pumpStatus || {}, i, err;
+      err = st.lastError || (st.errors && st.errors.length ? st.errors[st.errors.length - 1] : "—");
+      return [
+        "Version " + APP_VERSION,
+        "Mode: " + (st.mode || "—") + (st.live ? " · live" : ""),
+        "Chart lib: " + (st.lib || (window.__chartLib && window.__chartLib.ok) || "—") +
+          " (tried: " + ((window.__chartLib && window.__chartLib.tried) || []).join(", ") + ")",
+        "REST: " + (st.restBase || "—"),
+        "REST tried: " + ((st.restTried && st.restTried.length) ? st.restTried.join(", ") : "—"),
+        "REST failed: " + ((st.restFailed && st.restFailed.length) ? st.restFailed.join(" | ") : "—"),
+        "WS: " + (st.wsHost || "—") + " (" + (st.wsState || "idle") + ")",
+        "WS tried: " + ((st.wsTried && st.wsTried.length) ? st.wsTried.join(", ") : "—"),
+        "Last error: " + err
+      ].join("\n");
+    }
+    function toggleDiag() {
+      var el = document.getElementById("diag");
+      if (!el) return;
+      if (el.classList.contains("show")) {
+        el.classList.remove("show");
+        el.setAttribute("hidden", "");
+        el.textContent = "";
+        return;
+      }
+      el.textContent = diagText();
+      el.classList.add("show");
+      el.removeAttribute("hidden");
+    }
+    function resetSettings() {
+      try {
+        [LS.filters, LS.indicators, LS.sort, LS.restBase].forEach(function (k) {
+          try { localStorage.removeItem(k); } catch (e) {}
+        });
+      } catch (e) {}
+      try { location.reload(); } catch (e2) { location.href = location.pathname + "?v=" + APP_VERSION; }
     }
     function persistFilters() { saveJson(LS.filters, filters); }
     function persistIndicators() {
@@ -1159,9 +1333,13 @@
       html += checkRow("conf-range-shade", "Shade ranging zones on the chart", filters.rangeShade);
       html += checkRow("conf-scan", "Scan top 50 coins for fresh signals", filters.scan);
       html += "</div>";
-      html += "<p class=\"hint\">Version " + APP_VERSION + " · Times are UTC+7 (Asia/Jakarta). If the chart stays on Connecting, close and reopen this tab. Data: Binance REST (multiple endpoints) + WebSocket, with REST polling fallback.</p>";
+      html += "<p class=\"hint\">Version " + APP_VERSION + " · Times are UTC+7 (Asia/Jakarta). Tap the status pill for connection diagnostics. If the chart stays on Connecting, close and reopen this tab or tap Reset settings. Data: Binance REST (multiple endpoints) + WebSocket, with REST polling fallback.</p>";
+      html += "<button type=\"button\" class=\"btn\" id=\"btn-reset-settings\">Reset settings</button>";
+      html += "<p class=\"hint\">Clears saved filters and indicators (restores High defaults). Keeps the last coin and timeframe, then reloads.</p>";
       host.innerHTML = html;
       bindFilterForm(host);
+      var resetBtn = host.querySelector("#btn-reset-settings");
+      if (resetBtn) resetBtn.addEventListener("click", function () { resetSettings(); });
     }
     function togBtn(id, label, on) {
       return "<button type=\"button\" class=\"chip tog" + (on ? " active" : "") + "\" data-id=\"" + id + "\">" + label + "</button>";
@@ -1889,14 +2067,12 @@
       });
       return kept;
     }
-    var HIGH_PATTERN_IDS = {
-      bullEngulf: true, bearEngulf: true, morningStar: true, eveningStar: true,
-      hammer: true, shootingStar: true
-    };
     function setPatternPreset(kind) {
+      if (!filters.patterns || typeof filters.patterns !== "object") filters.patterns = {};
+      var highIds = HIGH_PATTERN_IDS || {};
       PATTERNS.forEach(function (p) {
         if (kind === "high") {
-          filters.patterns[p.id] = !!HIGH_PATTERN_IDS[p.id];
+          filters.patterns[p.id] = !!highIds[p.id];
         } else {
           filters.patterns[p.id] = !(p.id === "doji" || p.id === "dragonfly" || p.id === "gravestone" ||
             p.id === "sslExitBull" || p.id === "sslExitBear");
@@ -1904,6 +2080,8 @@
       });
     }
     function applyStrictness(level, persist) {
+      if (!filters || typeof filters !== "object") filters = defaultFilters();
+      if (!filters.patterns || typeof filters.patterns !== "object") filters.patterns = {};
       if (level !== "low" && level !== "medium") level = "high";
       var high = level === "high", med = level === "medium", low = level === "low";
       filters.strictness = level;
@@ -2319,7 +2497,7 @@
         ids = detectAt(candles, i);
         for (k = 0; k < ids.length; k++) {
           id = ids[k];
-          if (!filters.patterns[id]) continue;
+          if (!filters.patterns || !filters.patterns[id]) continue;
           dir = patternDir(id, candles, i);
           if (!sideOk(dir)) continue;
           if (!passesConfirm(dir, i, candles, e20, e50, rsis, ssl, bb)) continue;
@@ -2499,6 +2677,11 @@
       if (state.retryTimer) { clearTimeout(state.retryTimer); state.retryTimer = null; }
       var url = streamUrl(state.symbol, state.tf, WS_HOSTS[state.hostIndex]);
       var ws, settled = false;
+      window.__pumpStatus.wsState = "connecting";
+      window.__pumpStatus.wsHost = WS_HOSTS[state.hostIndex];
+      if (window.__pumpStatus.wsTried.indexOf(WS_HOSTS[state.hostIndex]) === -1) {
+        window.__pumpStatus.wsTried.push(WS_HOSTS[state.hostIndex]);
+      }
       try { ws = new WebSocket(url); } catch (e) { onWsFail(); return; }
       state.ws = ws;
       function fail() {
@@ -2517,6 +2700,7 @@
         state.attempt = 0;
         state.wsFailures = 0;
         window.__pumpStatus.wsHost = WS_HOSTS[state.hostIndex];
+        window.__pumpStatus.wsState = "open";
         window.__pumpStatus.mode = "ws";
         stopPolling();
         clearError();
@@ -2643,6 +2827,8 @@
       state.wsFailures = 0;
       state.attempt = 0;
       state.hostIndex = 0;
+      window.__pumpStatus.wsTried = [];
+      window.__pumpStatus.wsState = "idle";
       setStatus("connecting", "Connecting");
       highlightCoin();
       if (fromList) {
@@ -2656,7 +2842,9 @@
         connectWs();
       } catch (e) {
         logError(e);
-        setStatus("error", "Error");
+        var reason = (e && e.message) ? e.message : "REST failed";
+        if (reason.length > 42) reason = reason.slice(0, 42) + "…";
+        setStatus("reconnecting", "Offline – retrying (" + reason + ")");
         if (loadId === state.loadId) {
           state.retryTimer = setTimeout(function () {
             if (loadId === state.loadId) loadSymbol(state.symbol, state.tf);
@@ -2995,13 +3183,32 @@
       countSignalsWith: countSignalsWith,
       rangingStats: rangingStats,
       applyStrictness: function (level) { applyStrictness(level, true); },
+      resetSettings: resetSettings,
+      diagText: diagText,
       setFilter: function (key, val) { filters[key] = val; persistFilters(); refreshSignals(); renderIndicators(); }
     };
 
-    setView("chart");
-    window.__pumpStatus.ready = true;
-    loadSymbol(state.symbol, state.tf);
-    loadMarkets();
+    try {
+      var statusEl = document.getElementById("status");
+      if (statusEl) statusEl.addEventListener("click", function () { toggleDiag(); });
+      setView("chart");
+      window.__pumpStatus.ready = true;
+      loadSymbol(state.symbol, state.tf);
+      loadMarkets();
+    } catch (bootErr) {
+      logError(bootErr);
+      setStatusSafe("error", "Error – " + ((bootErr && bootErr.message) ? bootErr.message : "init failed"));
+    }
+    try {
+      fetch((location.pathname || "/") + "?v=check&t=" + Date.now(), { cache: "no-store" }).then(function (r) {
+        return r.text();
+      }).then(function (html) {
+        var m = String(html).match(/app-version" content="([^"]+)"/);
+        if (m && m[1] && m[1] !== APP_VERSION) {
+          location.replace((location.pathname || "/") + "?v=" + encodeURIComponent(m[1]));
+        }
+      }).catch(function () {});
+    } catch (e) {}
   })();
   </script>
 </body>
