@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0b0e11" />
-  <meta name="app-version" content="5.0" />
+  <meta name="app-version" content="5.1" />
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta name="mobile-web-app-capable" content="yes" />
@@ -12,7 +12,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>PUMP/USDT — Binance Spot</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230b0e11'/%3E%3Cpath d='M3 11 L7 6 L10 9 L13 4' stroke='%230ecb81' stroke-width='1.6' fill='none'/%3E%3C/svg%3E" />
-  <script src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js?v=5.0"></script>
+  <script src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js?v=5.1"></script>
   <style>
     :root {
       --bg: #0b0e11;
@@ -601,7 +601,7 @@
   </style>
 </head>
 <body>
-  <!-- coin-chart v5 ssl-hybrid ranging-filter -->
+  <!-- coin-chart v5.1 stricter-signals -->
   <div id="app">
     <header id="header">
       <div id="header-inner">
@@ -670,7 +670,7 @@
         <div class="sheet-title-row">
           <div class="sheet-title">Settings</div>
         </div>
-        <div class="sheet-sub">Indicators, reversal patterns, and confirmation filters<br />Version 5.0 · SSL Hybrid + ranging filter</div>
+        <div class="sheet-sub">Indicators, reversal patterns, and confirmation filters<br />Version 5.1 · Stricter signal defaults</div>
       </div>
       <div class="list" id="settings-body"></div>
     </section>
@@ -711,7 +711,7 @@
       ready: false, errors: [], live: false, trades: 0, symbol: "PUMPUSDT",
       coinsLoaded: false, coinCount: 0, marketLive: false,
       signals: 0, markers: 0, view: "chart", scanDone: 0, switched: [],
-      version: "5.0", mode: null, restBase: null, wsHost: null, polls: 0
+      version: "5.1", mode: null, restBase: null, wsHost: null, polls: 0
     };
 
     function logError(err) {
@@ -729,7 +729,7 @@
 
     var TFS = ["1m", "5m", "15m", "1h", "4h", "1d"];
     var INTERVAL_MS = { "1m": 60000, "5m": 300000, "15m": 900000, "1h": 3600000, "4h": 14400000, "1d": 86400000 };
-    var APP_VERSION = "5.0";
+    var APP_VERSION = "5.1";
     var SSL_UP = "#00c3ff";
     var SSL_DOWN = "#ff0062";
     var SSL_GRAY = "#787b86";
@@ -803,16 +803,31 @@
       on.doji = false;
       on.dragonfly = false;
       on.gravestone = false;
+      on.invHammer = false;
+      on.hangingMan = false;
+      on.piercing = false;
+      on.darkCloud = false;
+      on.tweezerBottom = false;
+      on.tweezerTop = false;
+      on.sslBaseBull = false;
+      on.sslBaseBear = false;
+      on.ssl1Bull = false;
+      on.ssl1Bear = false;
       on.sslExitBull = false;
       on.sslExitBear = false;
       return {
-        patterns: on, side: "both", trendEma: false, trendPrior: true,
-        trendN: 5, rsiZone: false, volSma: false, showForming: true, scan: true,
+        patterns: on, side: "both", trendEma: false, trendPrior: false,
+        trendN: 5, rsiZone: false, volSma: false, showForming: false, scan: true,
         showLabels: false,
-        sslAgree: true, sslN: 3, sslFlips: true,
-        rangeFilter: true, rangeAdx: true, adxThresh: 20,
-        rangeChop: true, chopThresh: 61.8, rangeChannel: true, rangeShade: true,
-        v: 5
+        sslAgree: true, sslN: 3, sslFlips: false, sslAgreeMode: "strict",
+        rangeFilter: true, rangeAdx: true, adxThresh: 25,
+        rangeChop: true, chopThresh: 55, rangeChannel: true, rangeShade: true,
+        extreme: true, rsiExtremeBull: 35, rsiExtremeBear: 65, extremeN: 5, swingN: 20,
+        strictWick: true, wickRatio: 2.5,
+        volConfirm: false, volMult: 1.2,
+        cooldownSame: 10, cooldownOpp: 5,
+        strictness: "high",
+        v: 6
       };
     }
     function loadJson(key, fallback) {
@@ -847,17 +862,17 @@
       if (!savedFilters.v || savedFilters.v < 5) {
         filters.sslAgree = true;
         filters.sslN = 3;
-        filters.sslFlips = true;
         filters.rangeFilter = true;
         filters.rangeAdx = true;
-        filters.adxThresh = 20;
         filters.rangeChop = true;
-        filters.chopThresh = 61.8;
         filters.rangeChannel = true;
         filters.rangeShade = true;
         if (typeof filters.patterns.sslExitBull === "undefined") filters.patterns.sslExitBull = false;
         if (typeof filters.patterns.sslExitBear === "undefined") filters.patterns.sslExitBear = false;
-        filters.v = 5;
+      }
+      if (!savedFilters.v || savedFilters.v < 6) {
+        applyStrictness("high", false);
+        filters.v = 6;
         saveJson(LS.filters, filters);
       }
     }
@@ -1083,6 +1098,11 @@
     function mountFilters(host, inSheet) {
       if (!host) return;
       var html = "";
+      html += "<div><div class=\"filt-label\">Signal strictness</div><div class=\"tog-grid\">";
+      html += togBtn("strict-low", "Low", filters.strictness === "low");
+      html += togBtn("strict-medium", "Medium", filters.strictness === "medium");
+      html += togBtn("strict-high", "High", filters.strictness === "high");
+      html += "</div><p class=\"hint\">High (default) keeps only high-quality, confirmed setups. Medium is the v5.0 filters plus a cooldown. Low matches v5.0, including forming-candle flags.</p></div>";
       html += "<div><div class=\"filt-label\">Indicators</div><div class=\"tog-grid\">";
       html += togBtn("ind-ema20", "EMA 20", state.showEma20);
       html += togBtn("ind-ema50", "EMA 50", state.showEma50);
@@ -1112,11 +1132,20 @@
       html += "<div class=\"num-row\">N = <input id=\"conf-n\" type=\"number\" min=\"3\" max=\"20\" value=\"" + (filters.trendN || 5) + "\" /> candles</div>";
       html += checkRow("conf-rsi", "RSI oversold &lt; 30 / overbought &gt; 70", filters.rsiZone);
       html += checkRow("conf-vol", "Volume above 20-SMA", filters.volSma);
-      html += checkRow("conf-forming", "Flag the forming candle", filters.showForming);
+      html += checkRow("conf-forming", "Flag the forming candle (can repaint; off in High / Medium)", filters.showForming);
       html += checkRow("conf-labels", "Show labels on chart markers (1–3 letter codes)", filters.showLabels);
+      html += checkRow("conf-strict-wick", "Strict hammer / shooting star (wick ≥ ratio × body, close in top/bottom third)", filters.strictWick);
+      html += "<div class=\"num-row\">Wick ≥ <input id=\"conf-wick\" type=\"number\" min=\"1.5\" max=\"6\" step=\"0.1\" value=\"" + (filters.wickRatio || 2.5) + "\" /> × body</div>";
+      html += checkRow("conf-extreme", "Reversal must be at an extreme (RSI, Bollinger touch, or 20-bar swing, within N bars)", filters.extreme);
+      html += "<div class=\"num-row\">Bull RSI &lt; <input id=\"conf-rsi-bull\" type=\"number\" min=\"5\" max=\"50\" step=\"1\" value=\"" + (filters.rsiExtremeBull || 35) + "\" /> / Bear RSI &gt; <input id=\"conf-rsi-bear\" type=\"number\" min=\"50\" max=\"95\" step=\"1\" value=\"" + (filters.rsiExtremeBear || 65) + "\" /></div>";
+      html += "<div class=\"num-row\">Extreme lookback N = <input id=\"conf-extreme-n\" type=\"number\" min=\"1\" max=\"10\" value=\"" + (filters.extremeN || 3) + "\" /> · Swing <input id=\"conf-swing-n\" type=\"number\" min=\"5\" max=\"50\" value=\"" + (filters.swingN || 20) + "\" /></div>";
+      html += checkRow("conf-vol-confirm", "Volume confirmation (signal bar vs prior 20-bar average)", filters.volConfirm);
+      html += "<div class=\"num-row\">Volume ≥ <input id=\"conf-vol-mult\" type=\"number\" min=\"0.5\" max=\"5\" step=\"0.1\" value=\"" + (filters.volMult || 1.2) + "\" /> × average</div>";
+      html += "<div class=\"num-row\">Cooldown same dir <input id=\"conf-cd-same\" type=\"number\" min=\"0\" max=\"50\" value=\"" + (filters.cooldownSame || 0) + "\" /> bars · opposite <input id=\"conf-cd-opp\" type=\"number\" min=\"0\" max=\"50\" value=\"" + (filters.cooldownOpp || 0) + "\" /></div>";
       html += "</div>";
       html += "<div><div class=\"filt-label\">SSL Hybrid agreement</div>";
-      html += checkRow("conf-ssl-agree", "Require SSL Hybrid agreement (close vs baseline, or baseline / SSL1 flip within N bars)", filters.sslAgree);
+      html += checkRow("conf-ssl-agree", "Require SSL Hybrid agreement", filters.sslAgree);
+      html += checkRow("conf-ssl-strict", "Strict: SSL bounce or flip/cross within N bars, and baseline not against the signal", filters.sslAgreeMode === "strict");
       html += "<div class=\"num-row\">N = <input id=\"conf-ssl-n\" type=\"number\" min=\"1\" max=\"20\" value=\"" + (filters.sslN || 3) + "\" /> bars</div>";
       html += checkRow("conf-ssl-flips", "Show SSL flip signals (baseline color change / SSL1 cross)", filters.sslFlips);
       html += "</div>";
@@ -1156,7 +1185,11 @@
           else if (id === "ind-ssl2") { state.showSsl2 = !state.showSsl2; persistIndicators(); renderIndicators(); }
           else if (id === "ind-ssl-exit") { state.showSslExit = !state.showSslExit; persistIndicators(); renderIndicators(); refreshSignals(); }
           else if (id === "ind-ssl-atr") { state.showSslAtr = !state.showSslAtr; persistIndicators(); renderIndicators(); }
-          else if (id === "side-both" || id === "side-bull" || id === "side-bear") {
+          else if (id === "strict-low" || id === "strict-medium" || id === "strict-high") {
+            applyStrictness(id.replace("strict-", ""), true);
+            remountOpenFilters();
+            return;
+          } else if (id === "side-both" || id === "side-bull" || id === "side-bear") {
             filters.side = id.replace("side-", ""); persistFilters(); refreshSignals();
             if (filters.scan) startScan(false);
           } else if (id === "pat-all") {
@@ -1186,7 +1219,15 @@
       bindCheck("conf-rsi", "rsiZone", true);
       bindCheck("conf-vol", "volSma", true);
       bindCheck("conf-forming", "showForming", false);
+      bindCheck("conf-strict-wick", "strictWick", true);
+      bindCheck("conf-extreme", "extreme", true);
+      bindCheck("conf-vol-confirm", "volConfirm", true);
       bindCheck("conf-ssl-agree", "sslAgree", true);
+      var sslStrictEl = host.querySelector("#conf-ssl-strict");
+      if (sslStrictEl) sslStrictEl.addEventListener("change", function () {
+        filters.sslAgreeMode = sslStrictEl.checked ? "strict" : "loose";
+        persistFilters(); refreshSignals(); if (filters.scan) startScan(false);
+      });
       bindCheck("conf-ssl-flips", "sslFlips", true);
       bindCheck("conf-range", "rangeFilter", true);
       bindCheck("conf-range-adx", "rangeAdx", true);
@@ -1211,6 +1252,26 @@
         var n = Math.max(1, Math.min(100, parseFloat(chopEl.value) || 61.8));
         filters.chopThresh = n; chopEl.value = n; persistFilters(); refreshSignals(); renderIndicators(); if (filters.scan) startScan(false);
       });
+      function bindNum(id, key, min, max, fallback, rescan, recolor) {
+        var el = host.querySelector("#" + id);
+        if (!el) return;
+        el.addEventListener("change", function () {
+          var n = parseFloat(el.value);
+          if (!isFinite(n)) n = fallback;
+          n = Math.max(min, Math.min(max, n));
+          filters[key] = n; el.value = n; persistFilters(); refreshSignals();
+          if (recolor) renderIndicators();
+          if (rescan && filters.scan) startScan(false);
+        });
+      }
+      bindNum("conf-wick", "wickRatio", 1.5, 6, 2.5, true, false);
+      bindNum("conf-rsi-bull", "rsiExtremeBull", 5, 50, 35, true, false);
+      bindNum("conf-rsi-bear", "rsiExtremeBear", 50, 95, 65, true, false);
+      bindNum("conf-extreme-n", "extremeN", 1, 10, 3, true, false);
+      bindNum("conf-swing-n", "swingN", 5, 50, 20, true, false);
+      bindNum("conf-vol-mult", "volMult", 0.5, 5, 1.2, true, false);
+      bindNum("conf-cd-same", "cooldownSame", 0, 50, 10, true, false);
+      bindNum("conf-cd-opp", "cooldownOpp", 0, 50, 5, true, false);
       var labEl = host.querySelector("#conf-labels");
       if (labEl) labEl.addEventListener("change", function () {
         filters.showLabels = labEl.checked; persistFilters(); refreshSignals();
@@ -1393,6 +1454,20 @@
         mid.push({ time: closes[i].time, value: mean });
         upper.push({ time: closes[i].time, value: mean + mult * sd });
         lower.push({ time: closes[i].time, value: mean - mult * sd });
+      }
+      return { upper: upper, mid: mid, lower: lower };
+    }
+    function bollingerArr(closes, period, mult) {
+      var n = closes.length, upper = new Array(n), mid = new Array(n), lower = new Array(n);
+      var i, j, sum, sq, mean, sd;
+      for (i = 0; i < n; i++) {
+        upper[i] = mid[i] = lower[i] = NaN;
+        if (i < period - 1) continue;
+        sum = 0; sq = 0;
+        for (j = i - period + 1; j <= i; j++) { sum += closes[j].close; sq += closes[j].close * closes[j].close; }
+        mean = sum / period;
+        sd = Math.sqrt(Math.max(0, sq / period - mean * mean));
+        mid[i] = mean; upper[i] = mean + mult * sd; lower[i] = mean - mult * sd;
       }
       return { upper: upper, mid: mid, lower: lower };
     }
@@ -1683,10 +1758,58 @@
       for (i = 0; i < n; i++) ssl.ranging[i] = isRangingAt(i, candles, ssl);
       return ssl;
     }
+    function crossedBaseline(dir, i, candles, ssl, lookback) {
+      var n = lookback || 3, k, from = Math.max(1, i - n + 1);
+      var prevC, c, prevB, b;
+      for (k = from; k <= i; k++) {
+        prevC = candles[k - 1].close; c = candles[k].close;
+        prevB = ssl.baseline[k - 1]; b = ssl.baseline[k];
+        if (!isFinite(prevB) || !isFinite(b)) continue;
+        if (dir === "bull" && prevC <= prevB && c > b) return true;
+        if (dir === "bear" && prevC >= prevB && c < b) return true;
+      }
+      return false;
+    }
+    function sslFlipInWindow(dir, i, ssl, lookback) {
+      var n = lookback || 3, k, from = Math.max(0, i - n + 1);
+      for (k = from; k <= i; k++) {
+        if (dir === "bull" && ssl.ssl1Flip[k] === 1) return true;
+        if (dir === "bear" && ssl.ssl1Flip[k] === -1) return true;
+      }
+      return false;
+    }
+    function sslBounce(dir, i, candles, ssl, lookback) {
+      var n = lookback || 3, from = Math.max(0, i - n + 1), k, touched = false, c, base, lo, up;
+      for (k = from; k <= i; k++) {
+        c = candles[k];
+        base = ssl.baseline[k]; lo = ssl.lowerk[k]; up = ssl.upperk[k];
+        if (dir === "bull") {
+          if (isFinite(base) && c.low <= base) touched = true;
+          if (isFinite(lo) && c.low <= lo) touched = true;
+        } else {
+          if (isFinite(base) && c.high >= base) touched = true;
+          if (isFinite(up) && c.high >= up) touched = true;
+        }
+      }
+      if (!touched) return false;
+      c = candles[i];
+      if (dir === "bull") return c.close >= (c.high + c.low) / 2;
+      return c.close <= (c.high + c.low) / 2;
+    }
     function sslAgrees(dir, i, candles, ssl, lookback) {
       if (!ssl) return true;
       var n = lookback || 3, k, from;
       var base = ssl.baseline[i];
+      var mode = filters.sslAgreeMode || "loose";
+      if (mode === "strict") {
+        if (!isFinite(base)) return false;
+        // Confirmation path: already-aligned baseline color plus a flip or close cross.
+        if ((dir === "bull" && ssl.baseDir[i] === 1) || (dir === "bear" && ssl.baseDir[i] === -1)) {
+          if (sslFlipInWindow(dir, i, ssl, n) || crossedBaseline(dir, i, candles, ssl, n)) return true;
+        }
+        // Bounce path: a reversal may start while the baseline is still red/gray.
+        return sslBounce(dir, i, candles, ssl, n);
+      }
       if (!isFinite(base)) return true;
       if (dir === "bull") {
         if (candles[i].close > base) return true;
@@ -1703,6 +1826,129 @@
       }
       return false;
     }
+    function isSwingExtreme(dir, i, candles, swingN) {
+      swingN = swingN || 20;
+      if (i < 0) return false;
+      var from = Math.max(0, i - swingN + 1), k, lo = Infinity, hi = -Infinity;
+      for (k = from; k <= i; k++) {
+        if (candles[k].low < lo) lo = candles[k].low;
+        if (candles[k].high > hi) hi = candles[k].high;
+      }
+      if (dir === "bull") return candles[i].low <= lo;
+      return candles[i].high >= hi;
+    }
+    function touchesExtreme(dir, i, candles, rsis, bb, lookback, swingN) {
+      lookback = lookback == null ? 3 : lookback;
+      swingN = swingN || 20;
+      var from = Math.max(0, i - Math.max(1, lookback) + 1), k, c;
+      var rsiBull = Number(filters.rsiExtremeBull) || 35;
+      var rsiBear = Number(filters.rsiExtremeBear) || 65;
+      for (k = from; k <= i; k++) {
+        c = candles[k];
+        if (dir === "bull" && isFinite(rsis[k]) && rsis[k] < rsiBull) return true;
+        if (dir === "bear" && isFinite(rsis[k]) && rsis[k] > rsiBear) return true;
+        if (bb) {
+          if (dir === "bull" && isFinite(bb.lower[k]) && c.low <= bb.lower[k]) return true;
+          if (dir === "bear" && isFinite(bb.upper[k]) && c.high >= bb.upper[k]) return true;
+        }
+        if (isSwingExtreme(dir, k, candles, swingN)) return true;
+      }
+      return false;
+    }
+    function volSmaPrev(candles, i, period) {
+      if (i < period) return NaN;
+      var s = 0, k;
+      for (k = i - period; k < i; k++) s += candles[k].volume;
+      return s / period;
+    }
+    function applyCooldown(sigs) {
+      var same = Number(filters.cooldownSame) || 0;
+      var opp = Number(filters.cooldownOpp) || 0;
+      if ((same <= 0 && opp <= 0) || !sigs || !sigs.length) return sigs;
+      var byIdx = {}, kept = [], lastBull = -1e9, lastBear = -1e9;
+      sigs.forEach(function (s) {
+        if (!byIdx[s.index]) byIdx[s.index] = [];
+        byIdx[s.index].push(s);
+      });
+      Object.keys(byIdx).map(Number).sort(function (a, b) { return a - b; }).forEach(function (i) {
+        var group = byIdx[i];
+        var bulls = group.filter(function (s) { return s.dir === "bull"; });
+        var bears = group.filter(function (s) { return s.dir === "bear"; });
+        if (bulls.length && bears.length) return;
+        if (bulls.length) {
+          if (same > 0 && i - lastBull < same) return;
+          if (opp > 0 && i - lastBear < opp) return;
+          lastBull = i;
+          kept.push.apply(kept, bulls);
+        } else if (bears.length) {
+          if (same > 0 && i - lastBear < same) return;
+          if (opp > 0 && i - lastBull < opp) return;
+          lastBear = i;
+          kept.push.apply(kept, bears);
+        }
+      });
+      return kept;
+    }
+    var HIGH_PATTERN_IDS = {
+      bullEngulf: true, bearEngulf: true, morningStar: true, eveningStar: true,
+      hammer: true, shootingStar: true
+    };
+    function setPatternPreset(kind) {
+      PATTERNS.forEach(function (p) {
+        if (kind === "high") {
+          filters.patterns[p.id] = !!HIGH_PATTERN_IDS[p.id];
+        } else {
+          filters.patterns[p.id] = !(p.id === "doji" || p.id === "dragonfly" || p.id === "gravestone" ||
+            p.id === "sslExitBull" || p.id === "sslExitBear");
+        }
+      });
+    }
+    function applyStrictness(level, persist) {
+      if (level !== "low" && level !== "medium") level = "high";
+      var high = level === "high", med = level === "medium", low = level === "low";
+      filters.strictness = level;
+      setPatternPreset(high ? "high" : "v5");
+      filters.showForming = !!low;
+      filters.trendPrior = !high;
+      filters.trendEma = false;
+      filters.trendN = 5;
+      filters.rsiZone = false;
+      filters.volSma = false;
+      filters.sslAgree = true;
+      filters.sslN = 3;
+      filters.sslAgreeMode = high ? "strict" : "loose";
+      filters.sslFlips = !high;
+      filters.rangeFilter = true;
+      filters.rangeAdx = true;
+      filters.rangeChop = true;
+      filters.rangeChannel = true;
+      filters.rangeShade = filters.rangeShade !== false;
+      filters.adxThresh = high ? 25 : 20;
+      filters.chopThresh = high ? 55 : 61.8;
+      filters.extreme = !!high;
+      filters.rsiExtremeBull = 35;
+      filters.rsiExtremeBear = 65;
+      filters.extremeN = high ? 5 : 3;
+      filters.swingN = 20;
+      filters.strictWick = !!high;
+      filters.wickRatio = 2.5;
+      filters.volConfirm = false;
+      filters.volMult = 1.2;
+      filters.cooldownSame = (high || med) ? 10 : 0;
+      filters.cooldownOpp = (high || med) ? 5 : 0;
+      filters.v = 6;
+      if (persist !== false) {
+        persistFilters();
+        refreshSignals();
+        renderIndicators();
+        if (filters.scan) startScan(false);
+      }
+    }
+    function snapshotFilters() { return JSON.parse(JSON.stringify(filters)); }
+    function restoreFilters(snap) {
+      Object.keys(filters).forEach(function (k) { delete filters[k]; });
+      Object.keys(snap).forEach(function (k) { filters[k] = snap[k]; });
+    }
     function linePts(candles, values, colors, colorOf) {
       var out = [], i, c;
       for (i = 0; i < candles.length; i++) {
@@ -1717,17 +1963,18 @@
       return hlv[i] < 0 ? (down || SSL_DOWN) : (up || SSL_UP);
     }
     function countSignalsWith(overrides) {
-      var saved = {}, k, n;
+      var saved = snapshotFilters(), k, n;
       overrides = overrides || {};
-      for (k in overrides) {
-        if (Object.prototype.hasOwnProperty.call(overrides, k)) {
-          saved[k] = filters[k];
+      try {
+        if (overrides.strictness) applyStrictness(overrides.strictness, false);
+        for (k in overrides) {
+          if (!Object.prototype.hasOwnProperty.call(overrides, k)) continue;
+          if (k === "strictness" || k === "patterns") continue;
           filters[k] = overrides[k];
         }
-      }
-      n = detectSignals(state.candles, true).length;
-      for (k in saved) {
-        if (Object.prototype.hasOwnProperty.call(saved, k)) filters[k] = saved[k];
+        n = detectSignals(state.candles, true).length;
+      } finally {
+        restoreFilters(saved);
       }
       return n;
     }
@@ -1971,8 +2218,13 @@
         else if (a.upper >= 2 * Math.max(a.lower, 1e-12) && a.upper >= 0.55 * a.range && a.lower <= 0.12 * a.range) add("gravestone");
         else if (a.range >= 0.6 * avg) add("doji");
       } else if (a.range >= 0.8 * avg) {
-        var longLower = a.lower >= 2.2 * a.body && a.upper <= a.body * 0.4 && a.body <= 0.35 * a.range && a.body > 0;
-        var longUpper = a.upper >= 2.2 * a.body && a.lower <= a.body * 0.4 && a.body <= 0.35 * a.range && a.body > 0;
+        var wickMin = filters.strictWick ? (Number(filters.wickRatio) || 2.5) : 2.2;
+        var longLower = a.lower >= wickMin * a.body && a.upper <= a.body * 0.4 && a.body <= 0.35 * a.range && a.body > 0;
+        var longUpper = a.upper >= wickMin * a.body && a.lower <= a.body * 0.4 && a.body <= 0.35 * a.range && a.body > 0;
+        if (filters.strictWick) {
+          longLower = longLower && c.close >= c.low + (2 / 3) * a.range;
+          longUpper = longUpper && c.close <= c.low + (1 / 3) * a.range;
+        }
         if (longLower) { if (tr === "up") add("hangingMan"); else add("hammer"); }
         if (longUpper) { if (tr === "up") add("shootingStar"); else add("invHammer"); }
       }
@@ -2007,7 +2259,7 @@
       if (meta.dir !== "both") return meta.dir;
       return priorTrend(candles, i, 5) === "up" ? "bear" : "bull";
     }
-    function passesConfirm(dir, i, candles, e20, e50, rsis, ssl) {
+    function passesConfirm(dir, i, candles, e20, e50, rsis, ssl, bb) {
       if (filters.trendEma) {
         var px = candles[i].close;
         var ref = isFinite(e50[i]) ? e50[i] : e20[i];
@@ -2030,8 +2282,14 @@
         var vs = volSmaAt(candles, i, 20);
         if (!isFinite(vs) || candles[i].volume <= vs) return false;
       }
+      if (filters.volConfirm) {
+        var vPrev = volSmaPrev(candles, i, 20);
+        var vMult = Number(filters.volMult) || 1.2;
+        if (!isFinite(vPrev) || candles[i].volume < vMult * vPrev) return false;
+      }
       if (filters.rangeFilter && isRangingAt(i, candles, ssl)) return false;
       if (filters.sslAgree && !sslAgrees(dir, i, candles, ssl, filters.sslN || 3)) return false;
+      if (filters.extreme && !touchesExtreme(dir, i, candles, rsis, bb, filters.extremeN || 3, filters.swingN || 20)) return false;
       return true;
     }
     function sideOk(dir) { return filters.side === "both" || filters.side === dir; }
@@ -2046,6 +2304,7 @@
       var e20 = emaArr(candles, 20);
       var e50 = emaArr(candles, 50);
       var rsis = rsiArr(candles, 14);
+      var bb = bollingerArr(candles, 20, 2);
       var ssl = getSsl(candles);
       end = includeForming && filters.showForming ? last : lastClosed;
       function pushSig(id, i, dir) {
@@ -2063,7 +2322,7 @@
           if (!filters.patterns[id]) continue;
           dir = patternDir(id, candles, i);
           if (!sideOk(dir)) continue;
-          if (!passesConfirm(dir, i, candles, e20, e50, rsis, ssl)) continue;
+          if (!passesConfirm(dir, i, candles, e20, e50, rsis, ssl, bb)) continue;
           pushSig(id, i, dir);
         }
         if (filters.sslFlips && ssl) {
@@ -2077,7 +2336,7 @@
           if (ssl.exitFlip[i] === -1 && filters.patterns.sslExitBear && sideOk("bear") && !isRangingAt(i, candles, ssl)) pushSig("sslExitBear", i, "bear");
         }
       }
-      return out;
+      return applyCooldown(out);
     }
     function refreshSignals() {
       var sigs = detectSignals(state.candles, true);
@@ -2735,6 +2994,7 @@
       getSsl: function () { return getSsl(state.candles); },
       countSignalsWith: countSignalsWith,
       rangingStats: rangingStats,
+      applyStrictness: function (level) { applyStrictness(level, true); },
       setFilter: function (key, val) { filters[key] = val; persistFilters(); refreshSignals(); renderIndicators(); }
     };
 
