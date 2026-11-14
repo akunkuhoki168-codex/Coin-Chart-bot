@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0b0e11" />
-  <meta name="app-version" content="6.1" />
+  <meta name="app-version" content="6.2" />
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta name="mobile-web-app-capable" content="yes" />
@@ -12,7 +12,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>PUMP/USDT — Binance Spot</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230b0e11'/%3E%3Cpath d='M3 11 L7 6 L10 9 L13 4' stroke='%230ecb81' stroke-width='1.6' fill='none'/%3E%3C/svg%3E" />
-  <script src="vendor/lightweight-charts.standalone.production.js?v=6.1"></script>
+  <script src="vendor/lightweight-charts.standalone.production.js?v=6.2"></script>
   <script>
     window.__chartLib = { tried: ["vendor"], ok: null };
     if (typeof LightweightCharts !== "undefined") window.__chartLib.ok = "vendor";
@@ -598,6 +598,7 @@
       #rsi-chart { height: 76px; }
       #stats-row { display: none; }
       #last { font-size: 16px; }
+      #last-signal { display: block; }
     }
     @media (max-width: 1023px) and (max-height: 700px) {
       #rsi-chart { height: 68px; }
@@ -662,7 +663,7 @@
   </style>
 </head>
 <body>
-  <!-- coin-chart v6.1 swing tops-bottoms -->
+  <!-- coin-chart v6.2 clean buy-sell markers -->
   <div id="app">
     <header id="header">
       <div id="header-inner">
@@ -824,7 +825,7 @@
 
     var TFS = ["1m", "5m", "15m", "1h", "4h", "1d"];
     var INTERVAL_MS = { "1m": 60000, "5m": 300000, "15m": 900000, "1h": 3600000, "4h": 14400000, "1d": 86400000 };
-    var APP_VERSION = "6.1";
+    var APP_VERSION = "6.2";
     var SSL_UP = "#00c3ff";
     var SSL_DOWN = "#ff0062";
     var SSL_GRAY = "#787b86";
@@ -920,7 +921,7 @@
         showLabels: false,
         sslAgree: true, sslN: 3, sslFlips: false, sslAgreeMode: "strict",
         rangeFilter: true, rangeAdx: true, adxThresh: 25,
-        rangeChop: true, chopThresh: 55, rangeChannel: true, rangeShade: true,
+        rangeChop: true, chopThresh: 55, rangeChannel: true, rangeShade: false,
         extreme: true, rsiExtremeBull: 35, rsiExtremeBear: 65, extremeN: 5, swingN: 20,
         strictWick: true, wickRatio: 2.5,
         volConfirm: false, volMult: 1.2,
@@ -928,7 +929,7 @@
         strictness: "high",
         unified: true, showAdvanced: false, sslFlipEntry: true, unifiedGap: 5,
         swingSens: "medium", swingEarly: true, swingRsiBias: true,
-        v: 8
+        v: 9
       };
     }
     function loadJson(key, fallback) {
@@ -974,7 +975,7 @@
     function loadAndMigrateFilters() {
       var defaults = defaultFilters(), saved = null, merged, v;
       try { saved = loadJson(LS.filters, null); } catch (e) { saved = null; }
-      if (!saved || !isPlainObject(saved)) return { filters: defaults, saved: null, v: 8 };
+      if (!saved || !isPlainObject(saved)) return { filters: defaults, saved: null, v: 9 };
       merged = deepMerge(defaults, saved);
       merged.patterns = normalizePatterns(saved.patterns, defaults.patterns);
       if (typeof merged.side !== "string") merged.side = "both";
@@ -1014,6 +1015,15 @@
         filters.v = 8;
         saveJson(LS.filters, filters);
       }
+      if (loaded.v < 9) {
+        filters.unified = true;
+        filters.showAdvanced = false;
+        filters.rangeShade = false;
+        filters.sslFlips = false;
+        filters.v = 9;
+        window.__cleanIndicatorsOnce = true;
+        saveJson(LS.filters, filters);
+      }
     } catch (migErr) {
       filters = defaultFilters();
       try { applyStrictness("high", false); } catch (e2) {}
@@ -1024,16 +1034,29 @@
       filters.swingSens = "medium";
       filters.swingEarly = true;
       filters.swingRsiBias = true;
-      filters.v = 8;
+      filters.rangeShade = false;
+      filters.sslFlips = false;
+      filters.v = 9;
+      window.__cleanIndicatorsOnce = true;
       try { saveJson(LS.filters, filters); } catch (e3) {}
       try { logError("Settings were reset: " + ((migErr && migErr.message) ? migErr.message : migErr)); } catch (e4) {}
     }
 
-    var savedInd = { showEma20: true, showEma50: true, showBb: false, showRsi: true, showSslBase: true, showSsl1: true, showSsl2: false, showSslExit: false, showSslAtr: false };
+    var savedInd = { showEma20: true, showEma50: true, showBb: false, showRsi: true, showSslBase: true, showSslChan: false, showSsl1: false, showSsl2: false, showSslExit: false, showSslAtr: false };
     try {
       var loadedInd = loadJson(LS.indicators, null);
-      if (loadedInd && typeof loadedInd === "object") savedInd = loadedInd;
+      if (loadedInd && typeof loadedInd === "object") savedInd = Object.assign({}, savedInd, loadedInd);
     } catch (e) {}
+    if (window.__cleanIndicatorsOnce) {
+      savedInd.showSslBase = true;
+      savedInd.showSslChan = false;
+      savedInd.showSsl1 = false;
+      savedInd.showSsl2 = false;
+      savedInd.showSslExit = false;
+      savedInd.showSslAtr = false;
+      try { saveJson(LS.indicators, savedInd); } catch (e) {}
+      try { delete window.__cleanIndicatorsOnce; } catch (e2) {}
+    }
     var savedSymbol = "PUMPUSDT";
     try {
       var lsSym = localStorage.getItem(LS.symbol);
@@ -1052,7 +1075,8 @@
       showBb: !!savedInd.showBb,
       showRsi: savedInd.showRsi !== false,
       showSslBase: savedInd.showSslBase !== false,
-      showSsl1: savedInd.showSsl1 !== false,
+      showSslChan: !!savedInd.showSslChan,
+      showSsl1: !!savedInd.showSsl1,
       showSsl2: !!savedInd.showSsl2,
       showSslExit: !!savedInd.showSslExit,
       showSslAtr: !!savedInd.showSslAtr,
@@ -1252,14 +1276,35 @@
       } catch (e) {}
       try { location.reload(); } catch (e2) { location.href = location.pathname + "?v=" + APP_VERSION; }
     }
+    function applyCleanView(persist) {
+      filters.unified = true;
+      filters.showAdvanced = false;
+      filters.rangeShade = false;
+      filters.sslFlips = false;
+      state.showSslBase = true;
+      state.showSslChan = false;
+      state.showSsl1 = false;
+      state.showSsl2 = false;
+      state.showSslExit = false;
+      state.showSslAtr = false;
+      if (persist !== false) {
+        persistFilters();
+        persistIndicators();
+        renderIndicators();
+        refreshSignals();
+        renderHeader();
+        showRecentRange();
+        if (filters.scan) startScan(false);
+      }
+    }
     function persistFilters() { saveJson(LS.filters, filters); }
     function persistIndicators() {
       saveJson(LS.indicators, {
         showEma20: state.showEma20, showEma50: state.showEma50,
         showBb: state.showBb, showRsi: state.showRsi,
-        showSslBase: state.showSslBase, showSsl1: state.showSsl1,
-        showSsl2: state.showSsl2, showSslExit: state.showSslExit,
-        showSslAtr: state.showSslAtr
+        showSslBase: state.showSslBase, showSslChan: state.showSslChan,
+        showSsl1: state.showSsl1, showSsl2: state.showSsl2,
+        showSslExit: state.showSslExit, showSslAtr: state.showSslAtr
       });
     }
     function persistSymbol() { try { localStorage.setItem(LS.symbol, state.symbol); } catch (e) {} }
@@ -1334,7 +1379,8 @@
       html += togBtn("ind-ema50", "EMA 50", state.showEma50);
       html += togBtn("ind-bb", "Bollinger", state.showBb);
       html += togBtn("ind-rsi", "RSI 14", state.showRsi);
-      html += togBtn("ind-ssl-base", "SSL Baseline + channel", state.showSslBase);
+      html += togBtn("ind-ssl-base", "SSL Baseline", state.showSslBase);
+      html += togBtn("ind-ssl-chan", "SSL channel (Keltner)", state.showSslChan);
       html += togBtn("ind-ssl1", "SSL1", state.showSsl1);
       html += togBtn("ind-ssl2", "SSL2 (JMA 5)", state.showSsl2);
       html += togBtn("ind-ssl-exit", "SSL Exit (HMA 15)", state.showSslExit);
@@ -1386,10 +1432,14 @@
       html += checkRow("conf-scan", "Scan top 50 coins for fresh signals", filters.scan);
       html += "</div>";
       html += "<p class=\"hint\">Version " + APP_VERSION + " · Times are UTC+7 (Asia/Jakarta). Tap the status pill for connection diagnostics. If the chart stays on Connecting, close and reopen this tab or tap Reset settings. Data: Binance REST (multiple endpoints) + WebSocket, with REST polling fallback.</p>";
+      html += "<button type=\"button\" class=\"btn\" id=\"btn-clean-view\">Clean view</button>";
+      html += "<p class=\"hint\">Keeps unified BUY/SELL arrows and a simple chart (EMA, RSI, optional SSL baseline). Turns off individual pattern markers, SSL1/2/Exit arrows, Keltner channel, and ranging shade.</p>";
       html += "<button type=\"button\" class=\"btn\" id=\"btn-reset-settings\">Reset settings</button>";
       html += "<p class=\"hint\">Clears saved filters and indicators (restores High defaults). Keeps the last coin and timeframe, then reloads.</p>";
       host.innerHTML = html;
       bindFilterForm(host);
+      var cleanBtn = host.querySelector("#btn-clean-view");
+      if (cleanBtn) cleanBtn.addEventListener("click", function () { applyCleanView(true); remountOpenFilters(); });
       var resetBtn = host.querySelector("#btn-reset-settings");
       if (resetBtn) resetBtn.addEventListener("click", function () { resetSettings(); });
     }
@@ -1411,6 +1461,7 @@
             document.getElementById("rsi-chart").classList.toggle("hidden", !state.showRsi);
             layoutCharts(); renderIndicators();
           } else if (id === "ind-ssl-base") { state.showSslBase = !state.showSslBase; persistIndicators(); renderIndicators(); }
+          else if (id === "ind-ssl-chan") { state.showSslChan = !state.showSslChan; persistIndicators(); renderIndicators(); }
           else if (id === "ind-ssl1") { state.showSsl1 = !state.showSsl1; persistIndicators(); renderIndicators(); }
           else if (id === "ind-ssl2") { state.showSsl2 = !state.showSsl2; persistIndicators(); renderIndicators(); }
           else if (id === "ind-ssl-exit") { state.showSslExit = !state.showSslExit; persistIndicators(); renderIndicators(); refreshSignals(); }
@@ -1667,7 +1718,19 @@
       var n = state.candles.length;
       if (!n) return;
       var bars = defaultVisibleBars();
+      var sigs = state.signals || [], i, s, lastIdx = -1, age;
+      if (filters.unified !== false) {
+        for (i = sigs.length - 1; i >= 0; i--) {
+          s = sigs[i];
+          if (s && !s.provisional && isFinite(s.index)) { lastIdx = s.index; break; }
+        }
+        if (lastIdx >= 0) {
+          age = (n - 1) - lastIdx;
+          if (age + 12 > bars) bars = Math.min(n, age + 24);
+        }
+      }
       window.__pumpStatus.visibleBars = bars;
+      window.__pumpStatus.viewFromSignal = lastIdx;
       function apply() {
         if (!state.candles.length) return;
         var nn = state.candles.length;
@@ -2186,7 +2249,7 @@
       filters.rangeAdx = true;
       filters.rangeChop = true;
       filters.rangeChannel = true;
-      filters.rangeShade = filters.rangeShade !== false;
+      if (typeof filters.rangeShade !== "boolean") filters.rangeShade = false;
       filters.adxThresh = high ? 25 : 20;
       filters.chopThresh = high ? 55 : 61.8;
       filters.extreme = !!high;
@@ -2206,7 +2269,7 @@
       if (filters.swingSens !== "low" && filters.swingSens !== "high" && filters.swingSens !== "medium") filters.swingSens = "medium";
       if (typeof filters.swingEarly !== "boolean") filters.swingEarly = true;
       if (typeof filters.swingRsiBias !== "boolean") filters.swingRsiBias = true;
-      filters.v = Math.max(8, Number(filters.v) || 8);
+      filters.v = Math.max(9, Number(filters.v) || 9);
       if (persist !== false) {
         persistFilters();
         refreshSignals();
@@ -2272,10 +2335,14 @@
       var ssl = rows.length ? getSsl(rows) : null;
       if (ssl && state.showSslBase) {
         sslBaseSeries.setData(linePts(rows, ssl.baseline, ssl.baseColor));
+      } else {
+        sslBaseSeries.setData([]);
+      }
+      if (ssl && state.showSslChan) {
         sslUpperSeries.setData(linePts(rows, ssl.upperk, ssl.baseColor));
         sslLowerSeries.setData(linePts(rows, ssl.lowerk, ssl.baseColor));
       } else {
-        sslBaseSeries.setData([]); sslUpperSeries.setData([]); sslLowerSeries.setData([]);
+        sslUpperSeries.setData([]); sslLowerSeries.setData([]);
       }
       ssl1Series.setData(ssl && state.showSsl1 ? linePts(rows, ssl.ssl1, null, function (i) { return hlvColor(ssl.ssl1Hlv, i); }) : []);
       ssl2Series.setData(ssl && state.showSsl2 ? linePts(rows, ssl.ssl2, null, function (i) { return hlvColor(ssl.ssl2Hlv, i, "#ffb000", "#ab47bc"); }) : []);
@@ -2750,44 +2817,68 @@
       if (minPct > 0 && pivotPrice > 0) t = Math.max(t, pivotPrice * minPct / 100);
       return Math.max(t, 0);
     }
+    function swingHL(candles, i, atr, clip) {
+      var c = candles[i], hi = c.high, lo = c.low, a, bodyHi, bodyLo;
+      clip = isFinite(clip) ? clip : 3;
+      if (!c) return { high: NaN, low: NaN };
+      a = (i > 0 && isFinite(atr[i - 1])) ? atr[i - 1] : (isFinite(atr[i]) ? atr[i] : 0);
+      if (a > 0 && clip > 0) {
+        bodyHi = Math.max(c.open, c.close);
+        bodyLo = Math.min(c.open, c.close);
+        hi = Math.min(hi, bodyHi + clip * a);
+        lo = Math.max(lo, bodyLo - clip * a);
+        if (lo > hi) { lo = bodyLo; hi = bodyHi; }
+      }
+      return { high: hi, low: lo };
+    }
     function computeSwingPivots(candles, end, atr, ranging, params) {
-      var start = 14, i, j, mode = "init";
+      var start = 14, i, j, mode = "init", hl;
       var hiI, hi, loI, lo, pivots = [], k = params.k, minBars = params.minBars, minPct = params.minPct;
       var developing = null;
       if (!candles || end < start + 2) return { pivots: pivots, developing: null, mode: mode };
-      hiI = 0; hi = candles[0].high;
-      loI = 0; lo = candles[0].low;
+      hl = swingHL(candles, 0, atr, 3);
+      hiI = 0; hi = hl.high;
+      loI = 0; lo = hl.low;
       function confirm(kind, idx, price, confI) {
         pivots.push({ kind: kind, i: idx, price: price, conf: confI, lag: confI - idx });
       }
       function seedHighFrom(from, to) {
-        hi = candles[from].high; hiI = from;
-        for (j = from; j <= to; j++) if (candles[j].high >= hi) { hi = candles[j].high; hiI = j; }
+        hl = swingHL(candles, from, atr, 3);
+        hi = hl.high; hiI = from;
+        for (j = from; j <= to; j++) {
+          hl = swingHL(candles, j, atr, 3);
+          if (hl.high >= hi) { hi = hl.high; hiI = j; }
+        }
       }
       function seedLowFrom(from, to) {
-        lo = candles[from].low; loI = from;
-        for (j = from; j <= to; j++) if (candles[j].low <= lo) { lo = candles[j].low; loI = j; }
+        hl = swingHL(candles, from, atr, 3);
+        lo = hl.low; loI = from;
+        for (j = from; j <= to; j++) {
+          hl = swingHL(candles, j, atr, 3);
+          if (hl.low <= lo) { lo = hl.low; loI = j; }
+        }
       }
       for (i = 1; i <= end; i++) {
+        hl = swingHL(candles, i, atr, 3);
         if (mode === "init") {
-          if (candles[i].high >= hi) { hi = candles[i].high; hiI = i; }
-          if (candles[i].low <= lo) { lo = candles[i].low; loI = i; }
+          if (hl.high >= hi) { hi = hl.high; hiI = i; }
+          if (hl.low <= lo) { lo = hl.low; loI = i; }
           var atrReady = isFinite(atr[i]);
-          var confLow = atrReady && (candles[i].high - lo) >= swingThresh(atr, i, lo, loI, ranging, k, minPct) && (i - loI) >= minBars;
-          var confHigh = atrReady && (hi - candles[i].low) >= swingThresh(atr, i, hi, hiI, ranging, k, minPct) && (i - hiI) >= minBars;
+          var confLow = atrReady && (hl.high - lo) >= swingThresh(atr, i, lo, loI, ranging, k, minPct) && (i - loI) >= minBars;
+          var confHigh = atrReady && (hi - hl.low) >= swingThresh(atr, i, hi, hiI, ranging, k, minPct) && (i - hiI) >= minBars;
           if (confLow && (!confHigh || loI <= hiI)) {
             confirm("low", loI, lo, i); mode = "seek_high"; seedHighFrom(loI, i);
           } else if (confHigh) {
             confirm("high", hiI, hi, i); mode = "seek_low"; seedLowFrom(hiI, i);
           }
         } else if (mode === "seek_high") {
-          if (candles[i].high >= hi) { hi = candles[i].high; hiI = i; }
-          if (isFinite(atr[i]) && (hi - candles[i].low) >= swingThresh(atr, i, hi, hiI, ranging, k, minPct) && (i - hiI) >= minBars) {
+          if (hl.high >= hi) { hi = hl.high; hiI = i; }
+          if (isFinite(atr[i]) && (hi - hl.low) >= swingThresh(atr, i, hi, hiI, ranging, k, minPct) && (i - hiI) >= minBars) {
             confirm("high", hiI, hi, i); mode = "seek_low"; seedLowFrom(hiI, i);
           }
         } else {
-          if (candles[i].low <= lo) { lo = candles[i].low; loI = i; }
-          if (isFinite(atr[i]) && (candles[i].high - lo) >= swingThresh(atr, i, lo, loI, ranging, k, minPct) && (i - loI) >= minBars) {
+          if (hl.low <= lo) { lo = hl.low; loI = i; }
+          if (isFinite(atr[i]) && (hl.high - lo) >= swingThresh(atr, i, lo, loI, ranging, k, minPct) && (i - loI) >= minBars) {
             confirm("low", loI, lo, i); mode = "seek_high"; seedHighFrom(loI, i);
           }
         }
@@ -2900,7 +2991,7 @@
       params = swingParams();
       pack = computeSwingPivots(candles, lastClosed, atr, ranging, params);
       if (forming && pack.developing) {
-        live = candles[last];
+        live = swingHL(candles, last, atr, 3);
         if (pack.mode === "seek_high" && live.high >= pack.developing.price) {
           pack.developing = { kind: "high", i: last, price: live.high };
         } else if (pack.mode === "seek_low" && live.low <= pack.developing.price) {
@@ -3077,7 +3168,7 @@
             umarkers.push({
               time: prov.time,
               position: prov.dir === "bull" ? "belowBar" : "aboveBar",
-              color: prov.dir === "bull" ? "#5ee0a8" : "#ff9aa8",
+              color: prov.dir === "bull" ? "#2ee59a" : "#ff7a8a",
               shape: prov.dir === "bull" ? "arrowUp" : "arrowDown",
               text: prov.dir === "bull" ? "BUY?" : "SELL?"
             });
@@ -3785,6 +3876,7 @@
       },
       backtestSignals: function (horizons) { return backtestSignals(getActiveSignals(state.candles, true), horizons); },
       resetSettings: resetSettings,
+      applyCleanView: function () { applyCleanView(true); },
       diagText: diagText,
       setFilter: function (key, val) { filters[key] = val; persistFilters(); refreshSignals(); renderIndicators(); }
     };
@@ -3800,16 +3892,26 @@
       logError(bootErr);
       setStatusSafe("error", "Error – " + ((bootErr && bootErr.message) ? bootErr.message : "init failed"));
     }
-    try {
-      fetch((location.pathname || "/") + "?v=check&t=" + Date.now(), { cache: "no-store" }).then(function (r) {
+    function checkAppVersion() {
+      var url = (location.pathname || "/") + "?ts=" + Date.now() + "&v=" + encodeURIComponent(APP_VERSION);
+      fetch(url, { cache: "no-store", headers: { "Cache-Control": "no-cache", "Pragma": "no-cache" } }).then(function (r) {
         return r.text();
       }).then(function (html) {
         var m = String(html).match(/app-version" content="([^"]+)"/);
-        if (m && m[1] && m[1] !== APP_VERSION) {
-          location.replace((location.pathname || "/") + "?v=" + encodeURIComponent(m[1]));
-        }
+        if (!m || !m[1] || m[1] === APP_VERSION) return;
+        try {
+          if (sessionStorage.getItem("coin-chart:reloadedFor") === m[1]) return;
+          sessionStorage.setItem("coin-chart:reloadedFor", m[1]);
+        } catch (e) {}
+        location.replace((location.pathname || "/") + "?v=" + encodeURIComponent(m[1]) + "&ts=" + Date.now());
       }).catch(function () {});
-    } catch (e) {}
+    }
+    try { checkAppVersion(); } catch (e) {}
+    document.addEventListener("visibilitychange", function () {
+      if (document.visibilityState === "visible") {
+        try { checkAppVersion(); } catch (e) {}
+      }
+    });
   })();
   </script>
 </body>
