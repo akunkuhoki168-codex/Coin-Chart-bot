@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0b0e11" />
-  <meta name="app-version" content="6.0" />
+  <meta name="app-version" content="6.1" />
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta name="mobile-web-app-capable" content="yes" />
@@ -12,7 +12,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>PUMP/USDT — Binance Spot</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230b0e11'/%3E%3Cpath d='M3 11 L7 6 L10 9 L13 4' stroke='%230ecb81' stroke-width='1.6' fill='none'/%3E%3C/svg%3E" />
-  <script src="vendor/lightweight-charts.standalone.production.js?v=6.0"></script>
+  <script src="vendor/lightweight-charts.standalone.production.js?v=6.1"></script>
   <script>
     window.__chartLib = { tried: ["vendor"], ok: null };
     if (typeof LightweightCharts !== "undefined") window.__chartLib.ok = "vendor";
@@ -252,7 +252,10 @@
     }
     #last-signal .buy { color: var(--up); font-weight: 700; }
     #last-signal .sell { color: var(--down); font-weight: 700; }
+    #last-signal .maybe { color: #7dffc0; font-weight: 700; }
+    #last-signal .maybe.sell { color: #ff9aa8; }
     .sig-score { color: var(--muted); font-size: 11px; }
+    .sig-stars { color: #f0c040; letter-spacing: 1px; font-size: 12px; font-weight: 700; }
     #tf-bar {
       display: flex;
       align-items: center;
@@ -440,6 +443,7 @@
     .signal-card.bull { border-left-color: var(--up); }
     .signal-card.bear { border-left-color: var(--down); }
     .signal-card.forming { border-left-style: dashed; }
+    .signal-card.provisional { opacity: 0.75; border-left-style: dashed; }
     .sig-top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
     .sig-name { font-weight: 700; font-size: 14px; }
     .sig-dir.bull { color: var(--up); }
@@ -658,7 +662,7 @@
   </style>
 </head>
 <body>
-  <!-- coin-chart v6.0 unified buy-sell -->
+  <!-- coin-chart v6.1 swing tops-bottoms -->
   <div id="app">
     <header id="header">
       <div id="header-inner">
@@ -820,7 +824,7 @@
 
     var TFS = ["1m", "5m", "15m", "1h", "4h", "1d"];
     var INTERVAL_MS = { "1m": 60000, "5m": 300000, "15m": 900000, "1h": 3600000, "4h": 14400000, "1d": 86400000 };
-    var APP_VERSION = "6.0";
+    var APP_VERSION = "6.1";
     var SSL_UP = "#00c3ff";
     var SSL_DOWN = "#ff0062";
     var SSL_GRAY = "#787b86";
@@ -923,7 +927,8 @@
         cooldownSame: 10, cooldownOpp: 5,
         strictness: "high",
         unified: true, showAdvanced: false, sslFlipEntry: true, unifiedGap: 5,
-        v: 7
+        swingSens: "medium", swingEarly: true, swingRsiBias: true,
+        v: 8
       };
     }
     function loadJson(key, fallback) {
@@ -969,7 +974,7 @@
     function loadAndMigrateFilters() {
       var defaults = defaultFilters(), saved = null, merged, v;
       try { saved = loadJson(LS.filters, null); } catch (e) { saved = null; }
-      if (!saved || !isPlainObject(saved)) return { filters: defaults, saved: null, v: 7 };
+      if (!saved || !isPlainObject(saved)) return { filters: defaults, saved: null, v: 8 };
       merged = deepMerge(defaults, saved);
       merged.patterns = normalizePatterns(saved.patterns, defaults.patterns);
       if (typeof merged.side !== "string") merged.side = "both";
@@ -1002,6 +1007,13 @@
         filters.v = 7;
         saveJson(LS.filters, filters);
       }
+      if (loaded.v < 8) {
+        if (filters.swingSens !== "low" && filters.swingSens !== "high") filters.swingSens = "medium";
+        if (typeof filters.swingEarly !== "boolean") filters.swingEarly = true;
+        if (typeof filters.swingRsiBias !== "boolean") filters.swingRsiBias = true;
+        filters.v = 8;
+        saveJson(LS.filters, filters);
+      }
     } catch (migErr) {
       filters = defaultFilters();
       try { applyStrictness("high", false); } catch (e2) {}
@@ -1009,7 +1021,10 @@
       filters.showAdvanced = false;
       filters.sslFlipEntry = true;
       filters.unifiedGap = 5;
-      filters.v = 7;
+      filters.swingSens = "medium";
+      filters.swingEarly = true;
+      filters.swingRsiBias = true;
+      filters.v = 8;
       try { saveJson(LS.filters, filters); } catch (e3) {}
       try { logError("Settings were reset: " + ((migErr && migErr.message) ? migErr.message : migErr)); } catch (e4) {}
     }
@@ -1303,12 +1318,17 @@
       html += togBtn("strict-low", "Low", filters.strictness === "low");
       html += togBtn("strict-medium", "Medium", filters.strictness === "medium");
       html += togBtn("strict-high", "High", filters.strictness === "high");
-      html += "</div><p class=\"hint\">High (default) keeps only high-quality, confirmed setups. Medium is the v5.0 filters plus a cooldown. Low matches v5.0, including forming-candle flags. In unified mode this also controls how many conditions a BUY/SELL needs.</p></div>";
-      html += "<div><div class=\"filt-label\">Unified signal</div>";
+      html += "</div><p class=\"hint\">In Advanced mode, High / Medium / Low still control pattern filters and cooldowns. Unified swing mode uses Sensitivity below instead.</p></div>";
+      html += "<div><div class=\"filt-label\">Unified signal (swing tops and bottoms)</div>";
       html += checkRow("conf-unified-adv", "Advanced: show individual signals (pattern and SSL-flip markers)", !filters.unified);
-      html += checkRow("conf-ssl-flip-entry", "Allow SSL1 flip + ADX rising (no candle pattern) as a BUY/SELL", filters.sslFlipEntry !== false);
-      html += "<div class=\"num-row\">Min bars between BUY/SELL <input id=\"conf-unified-gap\" type=\"number\" min=\"0\" max=\"50\" value=\"" + (isFinite(Number(filters.unifiedGap)) ? filters.unifiedGap : 5) + "\" /></div>";
-      html += "<p class=\"hint\">Default: one BUY or SELL when a reversal, SSL Hybrid, and non-ranging trend agree. Signals alternate (BUY, then SELL, then BUY). Advanced restores the old per-pattern markers.</p></div>";
+      html += "<div class=\"filt-label\" style=\"margin-top:10px\">Sensitivity</div><div class=\"tog-grid\">";
+      html += togBtn("swing-sens-low", "Low", (filters.swingSens || "medium") === "low");
+      html += togBtn("swing-sens-medium", "Med", (filters.swingSens || "medium") === "medium");
+      html += togBtn("swing-sens-high", "High", (filters.swingSens || "medium") === "high");
+      html += "</div>";
+      html += checkRow("conf-swing-early", "Show early provisional markers (faded BUY? / SELL? on a developing pivot)", filters.swingEarly !== false);
+      html += checkRow("conf-swing-rsi", "RSI context for quality stars (oversold/overbought or divergence — not a hard filter)", filters.swingRsiBias !== false);
+      html += "<p class=\"hint\">BUY marks a confirmed swing bottom and SELL a confirmed swing top. The arrow sits on the actual lowest/highest candle; confirmation comes later, after price reverses by about 5×ATR (Med). A faded BUY?/SELL? can move or disappear until that confirmation. Signals always alternate. SSL lines stay visible but no longer gate these signals. Advanced restores the old per-pattern markers.</p></div>";
       html += "<div><div class=\"filt-label\">Indicators</div><div class=\"tog-grid\">";
       html += togBtn("ind-ema20", "EMA 20", state.showEma20);
       html += togBtn("ind-ema50", "EMA 50", state.showEma50);
@@ -1399,6 +1419,12 @@
             applyStrictness(id.replace("strict-", ""), true);
             remountOpenFilters();
             return;
+          } else if (id === "swing-sens-low" || id === "swing-sens-medium" || id === "swing-sens-high") {
+            filters.swingSens = id.replace("swing-sens-", "");
+            persistFilters(); refreshSignals(); renderHeader();
+            if (filters.scan) startScan(false);
+            remountOpenFilters();
+            return;
           } else if (id === "side-both" || id === "side-bull" || id === "side-bear") {
             filters.side = id.replace("side-", ""); persistFilters(); refreshSignals();
             if (filters.scan) startScan(false);
@@ -1435,6 +1461,14 @@
         filters.showAdvanced = advEl.checked;
         persistFilters(); refreshSignals(); renderHeader();
         if (filters.scan) startScan(false);
+      });
+      var earlyEl = host.querySelector("#conf-swing-early");
+      if (earlyEl) earlyEl.addEventListener("change", function () {
+        filters.swingEarly = earlyEl.checked; persistFilters(); refreshSignals(); renderHeader();
+      });
+      var rsiBiasEl = host.querySelector("#conf-swing-rsi");
+      if (rsiBiasEl) rsiBiasEl.addEventListener("change", function () {
+        filters.swingRsiBias = rsiBiasEl.checked; persistFilters(); refreshSignals(); renderHeader();
       });
       var flipEntEl = host.querySelector("#conf-ssl-flip-entry");
       if (flipEntEl) flipEntEl.addEventListener("change", function () {
@@ -2169,7 +2203,10 @@
       if (typeof filters.unified !== "boolean") filters.unified = true;
       if (typeof filters.sslFlipEntry !== "boolean") filters.sslFlipEntry = true;
       if (!isFinite(Number(filters.unifiedGap))) filters.unifiedGap = 5;
-      filters.v = Math.max(7, Number(filters.v) || 7);
+      if (filters.swingSens !== "low" && filters.swingSens !== "high" && filters.swingSens !== "medium") filters.swingSens = "medium";
+      if (typeof filters.swingEarly !== "boolean") filters.swingEarly = true;
+      if (typeof filters.swingRsiBias !== "boolean") filters.swingRsiBias = true;
+      filters.v = Math.max(8, Number(filters.v) || 8);
       if (persist !== false) {
         persistFilters();
         refreshSignals();
@@ -2365,11 +2402,12 @@
     }
     function legendSignals(t) {
       var hits = (state.signals || []).filter(function (s) { return s.time === t; });
+      if (state.provisional && state.provisional.time === t) hits = hits.concat([state.provisional]);
       if (!hits.length) return "";
       hits.sort(function (a, b) { return (PATTERN_PRIORITY[b.id] || 0) - (PATTERN_PRIORITY[a.id] || 0); });
       return "  " + hits.map(function (s) {
         return "<span class=\"" + s.dir + "\"><strong>" + (s.dir === "bull" ? "▲ " : "▼ ") + esc(s.name) +
-          (s.forming ? " (forming)" : "") + "</strong></span>";
+          (s.provisional ? " (developing)" : (s.forming ? " (forming)" : "")) + "</strong></span>";
       }).join(" · ");
     }
         function renderHeader() {
@@ -2404,14 +2442,22 @@
         el.textContent = "";
         return;
       }
-      var sigs = state.signals || [], s, ago, label;
-      if (!sigs.length) { el.innerHTML = "Last: —"; return; }
-      s = sigs[sigs.length - 1];
-      ago = barsAgoOf(s.time);
-      label = s.dir === "bull" ? "BUY" : "SELL";
-      el.innerHTML = "Last: <span class=\"" + (s.dir === "bull" ? "buy" : "sell") + "\">" + label +
-        "</span> @ " + fmtPrice(s.price) +
-        (ago == null ? "" : ", " + ago + " bar" + (ago === 1 ? "" : "s") + " ago");
+      var sigs = state.signals || [], s, html, prov = state.provisional, lagWord;
+      if (!sigs.length && !prov) { el.innerHTML = "Last: —"; return; }
+      html = "Last: ";
+      if (sigs.length) {
+        s = sigs[sigs.length - 1];
+        lagWord = isFinite(s.lag) ? (", confirmed " + s.lag + " bar" + (s.lag === 1 ? "" : "s") + " later") : "";
+        html += "<span class=\"" + (s.dir === "bull" ? "buy" : "sell") + "\">" + (s.name || (s.dir === "bull" ? "BUY" : "SELL")) +
+          "</span> @ " + fmtPrice(s.price) + " (" + (s.swingKind || (s.dir === "bull" ? "bottom" : "top")) + ")" + lagWord;
+      } else {
+        html += "—";
+      }
+      if (prov) {
+        html += (sigs.length ? " · " : "") + "<span class=\"maybe" + (prov.dir === "bear" ? " sell" : "") + "\">" +
+          esc(prov.name) + "</span> developing @ " + fmtPrice(prov.price);
+      }
+      el.innerHTML = html;
     }
     function applyTicker(partial) {
       state.ticker = Object.assign({}, state.ticker || {}, partial);
@@ -2661,6 +2707,268 @@
         hasSsl: hasSsl, adxUp: adxUp, ranging: ranging
       };
     }
+    function atrArr(candles, period) {
+      period = period || 14;
+      var tr = trueRangeArr(candles), n = tr.length, out = new Array(n), i, prev = NaN, seed = 0, count = 0;
+      for (i = 0; i < n; i++) {
+        if (!isFinite(tr[i])) { out[i] = NaN; continue; }
+        if (count < period) {
+          seed += tr[i];
+          count++;
+          if (count === period) { prev = seed / period; out[i] = prev; }
+          else out[i] = NaN;
+        } else {
+          prev = (prev * (period - 1) + tr[i]) / period;
+          out[i] = prev;
+        }
+      }
+      return out;
+    }
+    function lastClosedIndex(candles) {
+      if (!candles || !candles.length) return -1;
+      var last = candles.length - 1;
+      var interval = INTERVAL_MS[state.tf] || 60000;
+      if (candles[last].time * 1000 + interval > Date.now() + 500) return last - 1;
+      return last;
+    }
+    function swingParams() {
+      var sens = filters.swingSens || "medium";
+      var k = 5, minBars = 3, minPct;
+      if (sens === "high") { k = 4.5; minBars = 3; }
+      else if (sens === "low") { k = 7; minBars = 4; }
+      minPct = ({ "1m": 1, "5m": 1.5, "15m": 1.2, "1h": 2, "4h": 2.5, "1d": 3.5 })[state.tf];
+      if (!isFinite(minPct)) minPct = 1.5;
+      if (sens === "high") minPct *= 0.8;
+      if (sens === "low") minPct *= 1.25;
+      return { k: k, minBars: minBars, minPct: minPct, sens: sens };
+    }
+    function swingThresh(atr, i, pivotPrice, pivotI, ranging, k, minPct) {
+      var a = isFinite(atr[i]) ? atr[i] : (pivotI >= 0 && isFinite(atr[pivotI]) ? atr[pivotI] : 0);
+      var kk = k;
+      if (ranging && pivotI >= 0 && ranging[pivotI]) kk = k * 1.25;
+      var t = a ? kk * a : 0;
+      if (minPct > 0 && pivotPrice > 0) t = Math.max(t, pivotPrice * minPct / 100);
+      return Math.max(t, 0);
+    }
+    function computeSwingPivots(candles, end, atr, ranging, params) {
+      var start = 14, i, j, mode = "init";
+      var hiI, hi, loI, lo, pivots = [], k = params.k, minBars = params.minBars, minPct = params.minPct;
+      var developing = null;
+      if (!candles || end < start + 2) return { pivots: pivots, developing: null, mode: mode };
+      hiI = 0; hi = candles[0].high;
+      loI = 0; lo = candles[0].low;
+      function confirm(kind, idx, price, confI) {
+        pivots.push({ kind: kind, i: idx, price: price, conf: confI, lag: confI - idx });
+      }
+      function seedHighFrom(from, to) {
+        hi = candles[from].high; hiI = from;
+        for (j = from; j <= to; j++) if (candles[j].high >= hi) { hi = candles[j].high; hiI = j; }
+      }
+      function seedLowFrom(from, to) {
+        lo = candles[from].low; loI = from;
+        for (j = from; j <= to; j++) if (candles[j].low <= lo) { lo = candles[j].low; loI = j; }
+      }
+      for (i = 1; i <= end; i++) {
+        if (mode === "init") {
+          if (candles[i].high >= hi) { hi = candles[i].high; hiI = i; }
+          if (candles[i].low <= lo) { lo = candles[i].low; loI = i; }
+          var atrReady = isFinite(atr[i]);
+          var confLow = atrReady && (candles[i].high - lo) >= swingThresh(atr, i, lo, loI, ranging, k, minPct) && (i - loI) >= minBars;
+          var confHigh = atrReady && (hi - candles[i].low) >= swingThresh(atr, i, hi, hiI, ranging, k, minPct) && (i - hiI) >= minBars;
+          if (confLow && (!confHigh || loI <= hiI)) {
+            confirm("low", loI, lo, i); mode = "seek_high"; seedHighFrom(loI, i);
+          } else if (confHigh) {
+            confirm("high", hiI, hi, i); mode = "seek_low"; seedLowFrom(hiI, i);
+          }
+        } else if (mode === "seek_high") {
+          if (candles[i].high >= hi) { hi = candles[i].high; hiI = i; }
+          if (isFinite(atr[i]) && (hi - candles[i].low) >= swingThresh(atr, i, hi, hiI, ranging, k, minPct) && (i - hiI) >= minBars) {
+            confirm("high", hiI, hi, i); mode = "seek_low"; seedLowFrom(hiI, i);
+          }
+        } else {
+          if (candles[i].low <= lo) { lo = candles[i].low; loI = i; }
+          if (isFinite(atr[i]) && (candles[i].high - lo) >= swingThresh(atr, i, lo, loI, ranging, k, minPct) && (i - loI) >= minBars) {
+            confirm("low", loI, lo, i); mode = "seek_high"; seedHighFrom(loI, i);
+          }
+        }
+      }
+      if (mode === "seek_high") developing = { kind: "high", i: hiI, price: hi };
+      else if (mode === "seek_low") developing = { kind: "low", i: loI, price: lo };
+      return { pivots: pivots, developing: developing, mode: mode };
+    }
+    function swingCandleBonus(candles, pivotI, dir) {
+      var j, ids, k, id, name = "", pri = -1, meta, from = Math.max(1, pivotI - 1), to = Math.min(candles.length - 1, pivotI + 1);
+      for (j = from; j <= to; j++) {
+        ids = detectAt(candles, j);
+        for (k = 0; k < ids.length; k++) {
+          id = ids[k];
+          if (!id || id.indexOf("ssl") === 0) continue;
+          if (patternDir(id, candles, j) !== dir) continue;
+          meta = PATTERN_MAP[id];
+          if ((PATTERN_PRIORITY[id] || 0) > pri) {
+            pri = PATTERN_PRIORITY[id] || 0;
+            name = meta ? meta.name : id;
+          }
+        }
+      }
+      return name;
+    }
+    function rateSwing(dir, pivotI, candles, rsis, prevSame) {
+      var stars = 0, reasons = [], rsi = rsis[pivotI], div = false, candleName, vs;
+      if (prevSame && isFinite(rsi) && isFinite(rsis[prevSame.i])) {
+        if (dir === "bull" && candles[pivotI].low < prevSame.price && rsi > rsis[prevSame.i]) div = true;
+        if (dir === "bear" && candles[pivotI].high > prevSame.price && rsi < rsis[prevSame.i]) div = true;
+      }
+      if (filters.swingRsiBias !== false) {
+        if (dir === "bull" && ((isFinite(rsi) && rsi < 40) || div)) {
+          stars++;
+          reasons.push(div ? "Bullish RSI divergence" : ("RSI " + Math.round(rsi)));
+        } else if (dir === "bear" && ((isFinite(rsi) && rsi > 60) || div)) {
+          stars++;
+          reasons.push(div ? "Bearish RSI divergence" : ("RSI " + Math.round(rsi)));
+        }
+      }
+      candleName = swingCandleBonus(candles, pivotI, dir);
+      if (candleName) { stars++; reasons.push(candleName); }
+      vs = volSmaPrev(candles, pivotI, 20);
+      if (isFinite(vs) && vs > 0 && candles[pivotI].volume >= 1.2 * vs) {
+        stars++;
+        reasons.push("Volume spike");
+      }
+      if (stars > 3) stars = 3;
+      return { stars: stars, reasons: reasons };
+    }
+    function emptySwingStats() {
+      return { n: 0, buys: 0, sells: 0, avgLag: null, medLag: null, local20Buy: null, local20Sell: null, avgSwingPct: null, avgSwingAtr: null };
+    }
+    function swingStats(candles, sigs, lastClosed) {
+      var buys = 0, sells = 0, locB = 0, locS = 0, lags = [], sizes = [], atrs = [], atr, w = 20, i, s, a, b, m, move, j;
+      if (!candles || !sigs || !sigs.length) return emptySwingStats();
+      atr = atrArr(candles, 14);
+      lastClosed = isFinite(lastClosed) ? lastClosed : lastClosedIndex(candles);
+      for (i = 0; i < sigs.length; i++) {
+        s = sigs[i];
+        if (s.provisional) continue;
+        if (isFinite(s.lag)) lags.push(s.lag);
+        if (s.dir === "bull") {
+          buys++;
+          a = Math.max(0, s.index - w);
+          b = Math.min(lastClosed, s.index + w);
+          m = Infinity;
+          for (j = a; j <= b; j++) if (candles[j].low < m) m = candles[j].low;
+          if (s.price <= m + 1e-12) locB++;
+        } else {
+          sells++;
+          a = Math.max(0, s.index - w);
+          b = Math.min(lastClosed, s.index + w);
+          m = -Infinity;
+          for (j = a; j <= b; j++) if (candles[j].high > m) m = candles[j].high;
+          if (s.price >= m - 1e-12) locS++;
+        }
+        if (i > 0 && !sigs[i - 1].provisional) {
+          move = Math.abs(s.price - sigs[i - 1].price);
+          if (sigs[i - 1].price) sizes.push(100 * move / sigs[i - 1].price);
+          if (isFinite(atr[s.index]) && atr[s.index] > 0) atrs.push(move / atr[s.index]);
+        }
+      }
+      function avg(arr) { return arr.length ? Math.round(arr.reduce(function (x, y) { return x + y; }, 0) / arr.length * 10) / 10 : null; }
+      function pct(num, den) { return den ? Math.round(num / den * 1000) / 10 : null; }
+      return {
+        n: buys + sells,
+        buys: buys,
+        sells: sells,
+        avgLag: avg(lags),
+        medLag: lags.length ? lags.slice().sort(function (x, y) { return x - y; })[Math.floor(lags.length / 2)] : null,
+        local20Buy: pct(locB, buys),
+        local20Sell: pct(locS, sells),
+        avgSwingPct: avg(sizes),
+        avgSwingAtr: avg(atrs),
+        k: swingParams().k,
+        sens: filters.swingSens || "medium"
+      };
+    }
+    function detectSwingSignals(candles, includeForming) {
+      var out = [], last, lastClosed, forming, atr, ssl, ranging, params, pack, i, p, prevSame, next, dir, side, rate, pct, label, prov, live, rsis;
+      if (!candles || candles.length < 20) return { signals: out, provisional: null, stats: emptySwingStats() };
+      last = candles.length - 1;
+      lastClosed = lastClosedIndex(candles);
+      forming = lastClosed < last;
+      if (lastClosed < 20) return { signals: out, provisional: null, stats: emptySwingStats() };
+      atr = atrArr(candles, 14);
+      ssl = getSsl(candles);
+      ranging = ssl && ssl.ranging;
+      params = swingParams();
+      pack = computeSwingPivots(candles, lastClosed, atr, ranging, params);
+      if (forming && pack.developing) {
+        live = candles[last];
+        if (pack.mode === "seek_high" && live.high >= pack.developing.price) {
+          pack.developing = { kind: "high", i: last, price: live.high };
+        } else if (pack.mode === "seek_low" && live.low <= pack.developing.price) {
+          pack.developing = { kind: "low", i: last, price: live.low };
+        }
+      }
+      side = filters.side || "both";
+      rsis = rsiArr(candles, 14);
+      for (i = 0; i < pack.pivots.length; i++) {
+        p = pack.pivots[i];
+        dir = p.kind === "low" ? "bull" : "bear";
+        if (side !== "both" && side !== dir) continue;
+        prevSame = i >= 2 ? pack.pivots[i - 2] : null;
+        rate = rateSwing(dir, p.i, candles, rsis, prevSame);
+        next = pack.pivots[i + 1] || null;
+        if (next) {
+          pct = p.price ? Math.round(((next.price - p.price) / p.price) * 10000) / 100 : null;
+          label = (isFinite(pct) ? ((pct >= 0 ? "+" : "") + pct + "% to next " + (next.kind === "low" ? "BUY" : "SELL")) : "");
+        } else if (pack.developing && pack.developing.kind !== p.kind) {
+          pct = p.price ? Math.round(((pack.developing.price - p.price) / p.price) * 10000) / 100 : null;
+          label = (isFinite(pct) ? ((pct >= 0 ? "+" : "") + pct + "% so far") : "");
+        } else { pct = null; label = ""; }
+        rate.reasons = ["Lag " + p.lag + " bar" + (p.lag === 1 ? "" : "s")].concat(rate.reasons);
+        out.push({
+          index: p.i,
+          time: candles[p.i].time,
+          price: p.price,
+          dir: dir,
+          id: dir === "bull" ? "buy" : "sell",
+          name: dir === "bull" ? "BUY" : "SELL",
+          short: dir === "bull" ? "BUY" : "SELL",
+          forming: false,
+          provisional: false,
+          confirmIndex: p.conf,
+          confirmTime: candles[p.conf] ? candles[p.conf].time : candles[p.i].time,
+          lag: p.lag,
+          stars: rate.stars,
+          reasons: rate.reasons,
+          nextMovePct: pct,
+          nextMoveLabel: label,
+          swingKind: p.kind === "low" ? "bottom" : "top",
+          unified: true
+        });
+      }
+      prov = null;
+      if (filters.swingEarly !== false && pack.developing && pack.developing.i >= 0) {
+        dir = pack.developing.kind === "low" ? "bull" : "bear";
+        if (side === "both" || side === dir) {
+          prov = {
+            index: pack.developing.i,
+            time: candles[pack.developing.i].time,
+            price: pack.developing.price,
+            dir: dir,
+            id: dir === "bull" ? "buy" : "sell",
+            name: dir === "bull" ? "BUY?" : "SELL?",
+            short: dir === "bull" ? "BUY?" : "SELL?",
+            forming: forming && pack.developing.i === last,
+            provisional: true,
+            lag: null,
+            stars: 0,
+            reasons: ["Developing — not confirmed"],
+            swingKind: pack.developing.kind === "low" ? "bottom" : "top",
+            unified: true
+          };
+        }
+      }
+      return { signals: out, provisional: prov, stats: swingStats(candles, out, lastClosed) };
+    }
     function detectUnifiedSignals(candles, includeForming) {
       var out = [], last, lastClosed, forming = false, interval, i, end, e20, e50, rsis, bb, ssl;
       var bull, bear, pick, lastDir = null, lastIdx = -1e9, gap, side;
@@ -2708,38 +3016,52 @@
       return out;
     }
     function getActiveSignals(candles, includeForming) {
-      if (filters.unified !== false) return detectUnifiedSignals(candles, includeForming);
+      if (filters.unified !== false) return detectSwingSignals(candles, includeForming).signals;
       return detectSignals(candles, includeForming);
     }
     function backtestSignals(sigs, horizons) {
-      var candles = state.candles, result = {}, h, k, s, j, later, fav, tot, move;
+      var candles = state.candles, result = {}, h, k, s, j, later, fav, tot, move, entryI;
       horizons = horizons || [5, 10, 20];
       for (k = 0; k < horizons.length; k++) {
         h = horizons[k];
         tot = 0; fav = 0;
         for (j = 0; j < (sigs || []).length; j++) {
           s = sigs[j];
-          if (s.index + h >= candles.length) continue;
-          later = candles[s.index + h].close;
-          move = later - s.price;
+          if (s.provisional) continue;
+          entryI = isFinite(s.confirmIndex) ? s.confirmIndex : s.index;
+          if (entryI + h >= candles.length) continue;
+          later = candles[entryI + h].close;
+          move = later - candles[entryI].close;
           if ((s.dir === "bull" && move > 0) || (s.dir === "bear" && move < 0)) fav++;
           tot++;
         }
-        result[h] = { n: tot, favorable: fav, pct: tot ? Math.round((fav / tot) * 1000) / 10 : null };
+        result[h] = { n: tot, favorable: fav, pct: tot ? Math.round((fav / tot) * 1000) / 10 : null, from: "confirm" };
       }
       return result;
     }
     function refreshSignals() {
-      var sigs = getActiveSignals(state.candles, true);
+      var pack, sigs, prov;
+      if (filters.unified !== false) {
+        pack = detectSwingSignals(state.candles, true);
+        sigs = pack.signals;
+        prov = pack.provisional || null;
+        state.swingStats = pack.stats || null;
+      } else {
+        sigs = detectSignals(state.candles, true);
+        prov = null;
+        state.swingStats = null;
+      }
       state.signals = sigs;
+      state.provisional = prov;
       window.__pumpStatus.signals = sigs.length;
-      applyMarkers(sigs);
-      renderSignalList(sigs);
+      window.__pumpStatus.swingStats = state.swingStats;
+      applyMarkers(sigs, prov);
+      renderSignalList(sigs, prov);
       renderLastSignal();
     }
-    function applyMarkers(sigs) {
+    function applyMarkers(sigs, prov) {
       if (filters.unified !== false) {
-        var umarkers = sigs.map(function (s) {
+        var umarkers = (sigs || []).map(function (s) {
           return {
             time: s.time,
             position: s.dir === "bull" ? "belowBar" : "aboveBar",
@@ -2748,6 +3070,19 @@
             text: s.dir === "bull" ? "BUY" : "SELL"
           };
         });
+        if (prov && (filters.swingEarly !== false)) {
+          var taken = {};
+          umarkers.forEach(function (m) { taken[m.time] = true; });
+          if (!taken[prov.time]) {
+            umarkers.push({
+              time: prov.time,
+              position: prov.dir === "bull" ? "belowBar" : "aboveBar",
+              color: prov.dir === "bull" ? "#5ee0a8" : "#ff9aa8",
+              shape: prov.dir === "bull" ? "arrowUp" : "arrowDown",
+              text: prov.dir === "bull" ? "BUY?" : "SELL?"
+            });
+          }
+        }
         umarkers.sort(function (a, b) { return a.time - b.time; });
         candleSeries.setMarkers(umarkers);
         window.__pumpStatus.markers = umarkers.length;
@@ -2796,14 +3131,26 @@
       window.__pumpStatus.markers = markers.length;
       window.__pumpStatus.labelsOn = !!filters.showLabels;
     }
-    function renderSignalList(sigs) {
+    function starText(n) {
+      var i, s = "";
+      n = Math.max(0, Math.min(3, n || 0));
+      for (i = 0; i < 3; i++) s += i < n ? "★" : "☆";
+      return s;
+    }
+    function renderSignalList(sigs, prov) {
       var host = document.getElementById("signal-list");
-      var recent = sigs.slice().reverse().slice(0, 80);
-      document.getElementById("signal-count").textContent = recent.length ? recent.length + " on " + state.tf : "No signals yet";
+      var list = (sigs || []).slice();
+      if (prov) list = list.concat([prov]);
+      var recent = list.slice().reverse().slice(0, 80);
+      var confirmedN = (sigs || []).length;
+      document.getElementById("signal-count").textContent = confirmedN ? confirmedN + " on " + state.tf : "No signals yet";
       var badge = document.getElementById("sig-badge");
       var interval = (INTERVAL_MS[state.tf] || 60000) / 1000;
       var lastT = state.candles.length ? state.candles[state.candles.length - 1].time : 0;
-      var freshN = sigs.filter(function (x) { return x.time >= lastT - 12 * interval; }).length;
+      var freshN = (sigs || []).filter(function (x) {
+        var t = isFinite(x.confirmTime) ? x.confirmTime : x.time;
+        return t >= lastT - 12 * interval;
+      }).length;
       if (freshN) { badge.textContent = freshN > 99 ? "99+" : String(freshN); badge.classList.add("show"); }
       else badge.classList.remove("show");
       if (!recent.length) {
@@ -2813,11 +3160,16 @@
       }
       var html = "";
       recent.forEach(function (s) {
-        html += "<button type=\"button\" class=\"signal-card " + s.dir + (s.forming ? " forming" : "") + "\" data-time=\"" + s.time + "\">";
+        html += "<button type=\"button\" class=\"signal-card " + s.dir + (s.forming ? " forming" : "") + (s.provisional ? " provisional" : "") + "\" data-time=\"" + s.time + "\">";
         html += "<div class=\"sig-top\"><span class=\"sig-name sig-dir " + s.dir + "\">" + (s.dir === "bull" ? "▲ " : "▼ ") + esc(s.name) + "</span>";
-        html += "<span class=\"sig-px\">" + fmtPrice(s.price) + "</span></div>";
+        html += "<span class=\"sig-px\">" + fmtPrice(s.price);
+        if (filters.unified !== false && !s.provisional) html += " <span class=\"sig-stars\">" + starText(s.stars) + "</span>";
+        html += "</span></div>";
         html += "<div class=\"sig-meta\">" + fmtFull(s.time) + " · " + esc(state.tf) + " · " + esc(pairLabel(state.symbol));
-        if (isFinite(s.score)) html += " · <span class=\"sig-score\">" + s.score + "/4</span>";
+        if (s.provisional) html += " · developing";
+        else if (isFinite(s.lag)) html += " · confirmed " + s.lag + " bar" + (s.lag === 1 ? "" : "s") + " later";
+        if (s.nextMoveLabel) html += " · " + esc(s.nextMoveLabel);
+        if (isFinite(s.score) && filters.unified === false) html += " · <span class=\"sig-score\">" + s.score + "/4</span>";
         html += "</div>";
         html += "<div class=\"sig-chips\">";
         if (s.forming) html += "<span class=\"mini-chip\">Forming</span>";
@@ -3363,7 +3715,9 @@
             forming = candles[last].time * 1000 + interval > Date.now() + 500;
             closedTime = forming && last >= 1 ? candles[last - 1].time : candles[last].time;
             hits = getActiveSignals(candles, true).filter(function (s) {
-              return s.time === closedTime || (filters.unified === false && filters.showForming && s.forming);
+              if (s.provisional) return false;
+              var hitT = isFinite(s.confirmTime) ? s.confirmTime : s.time;
+              return hitT === closedTime || (filters.unified === false && filters.showForming && s.forming);
             });
             fresh = hits.length ? hits[hits.length - 1] : null;
             if (fresh) state.scanMap[item.symbol] = { dir: fresh.dir, short: fresh.short, name: fresh.name, time: fresh.time, score: fresh.score };
@@ -3416,12 +3770,19 @@
       getState: function () { return state; },
       getFilters: function () { return filters; },
       getVisibleLogicalRange: function () { return mainChart.timeScale().getVisibleLogicalRange(); },
+      setVisibleRange: function (from, to) { mainChart.timeScale().setVisibleRange({ from: from, to: to }); },
       version: APP_VERSION,
       getSsl: function () { return getSsl(state.candles); },
       countSignalsWith: countSignalsWith,
       rangingStats: rangingStats,
       applyStrictness: function (level) { applyStrictness(level, true); },
       getActiveSignals: function () { return getActiveSignals(state.candles, true); },
+      getSwingPack: function () { return detectSwingSignals(state.candles, true); },
+      swingStats: function () {
+        if (state.swingStats) return state.swingStats;
+        if (filters.unified !== false) return detectSwingSignals(state.candles, true).stats;
+        return null;
+      },
       backtestSignals: function (horizons) { return backtestSignals(getActiveSignals(state.candles, true), horizons); },
       resetSettings: resetSettings,
       diagText: diagText,
