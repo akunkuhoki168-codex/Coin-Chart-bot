@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0b0e11" />
-  <meta name="app-version" content="5.2" />
+  <meta name="app-version" content="6.0" />
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta name="mobile-web-app-capable" content="yes" />
@@ -12,7 +12,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>PUMP/USDT — Binance Spot</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230b0e11'/%3E%3Cpath d='M3 11 L7 6 L10 9 L13 4' stroke='%230ecb81' stroke-width='1.6' fill='none'/%3E%3C/svg%3E" />
-  <script src="vendor/lightweight-charts.standalone.production.js?v=5.2"></script>
+  <script src="vendor/lightweight-charts.standalone.production.js?v=6.0"></script>
   <script>
     window.__chartLib = { tried: ["vendor"], ok: null };
     if (typeof LightweightCharts !== "undefined") window.__chartLib.ok = "vendor";
@@ -241,6 +241,18 @@
       font-weight: 600;
       margin-left: 4px;
     }
+    #last-signal {
+      padding: 4px 12px 0;
+      font-size: 11px;
+      color: var(--muted);
+      flex: 0 0 auto;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    #last-signal .buy { color: var(--up); font-weight: 700; }
+    #last-signal .sell { color: var(--down); font-weight: 700; }
+    .sig-score { color: var(--muted); font-size: 11px; }
     #tf-bar {
       display: flex;
       align-items: center;
@@ -646,7 +658,7 @@
   </style>
 </head>
 <body>
-  <!-- coin-chart v5.2 settings-migration-fix failover -->
+  <!-- coin-chart v6.0 unified buy-sell -->
   <div id="app">
     <header id="header">
       <div id="header-inner">
@@ -672,6 +684,7 @@
         <span>Vol<b id="volume">—</b></span>
         <span>Quote<b id="qvolume">—</b></span>
       </div>
+      <div id="last-signal">Last: —</div>
       <div id="tf-bar">
         <div id="tf-row"></div>
         <button type="button" class="chip" id="btn-filters-tf">Filters</button>
@@ -716,7 +729,7 @@
         <div class="sheet-title-row">
           <div class="sheet-title">Settings</div>
         </div>
-        <div class="sheet-sub">Indicators, reversal patterns, and confirmation filters<br />Version 5.2 · Settings recovery + failover</div>
+        <div class="sheet-sub">Indicators, reversal patterns, and confirmation filters<br />Version 6.0 · Unified BUY / SELL</div>
       </div>
       <div class="list" id="settings-body"></div>
     </section>
@@ -757,7 +770,7 @@
       ready: false, errors: [], live: false, trades: 0, symbol: "PUMPUSDT",
       coinsLoaded: false, coinCount: 0, marketLive: false,
       signals: 0, markers: 0, view: "chart", scanDone: 0, switched: [],
-      version: "5.2", mode: null, restBase: null, wsHost: null, polls: 0,
+      version: "6.0", mode: null, restBase: null, wsHost: null, polls: 0,
       lastError: null, restTried: [], restFailed: [], wsTried: [], wsState: "idle",
       lib: (window.__chartLib && window.__chartLib.ok) || null,
       connectSince: Date.now()
@@ -807,7 +820,7 @@
 
     var TFS = ["1m", "5m", "15m", "1h", "4h", "1d"];
     var INTERVAL_MS = { "1m": 60000, "5m": 300000, "15m": 900000, "1h": 3600000, "4h": 14400000, "1d": 86400000 };
-    var APP_VERSION = "5.2";
+    var APP_VERSION = "6.0";
     var SSL_UP = "#00c3ff";
     var SSL_DOWN = "#ff0062";
     var SSL_GRAY = "#787b86";
@@ -909,7 +922,8 @@
         volConfirm: false, volMult: 1.2,
         cooldownSame: 10, cooldownOpp: 5,
         strictness: "high",
-        v: 6
+        unified: true, showAdvanced: false, sslFlipEntry: true, unifiedGap: 5,
+        v: 7
       };
     }
     function loadJson(key, fallback) {
@@ -955,7 +969,7 @@
     function loadAndMigrateFilters() {
       var defaults = defaultFilters(), saved = null, merged, v;
       try { saved = loadJson(LS.filters, null); } catch (e) { saved = null; }
-      if (!saved || !isPlainObject(saved)) return { filters: defaults, saved: null, v: 6 };
+      if (!saved || !isPlainObject(saved)) return { filters: defaults, saved: null, v: 7 };
       merged = deepMerge(defaults, saved);
       merged.patterns = normalizePatterns(saved.patterns, defaults.patterns);
       if (typeof merged.side !== "string") merged.side = "both";
@@ -976,13 +990,26 @@
       filters = loaded.filters;
       if (loaded.v < 6) {
         applyStrictness("high", false);
-        filters.v = 6;
+      }
+      if (loaded.v < 7) {
+        if (typeof filters.unified !== "boolean") filters.unified = true;
+        if (typeof filters.showAdvanced !== "boolean") filters.showAdvanced = false;
+        if (typeof filters.sslFlipEntry !== "boolean") filters.sslFlipEntry = true;
+        if (!isFinite(Number(filters.unifiedGap))) filters.unifiedGap = 5;
+        // Advanced mode is the old per-pattern list; unified is the default.
+        if (filters.showAdvanced) filters.unified = false;
+        else filters.unified = filters.unified !== false;
+        filters.v = 7;
         saveJson(LS.filters, filters);
       }
     } catch (migErr) {
       filters = defaultFilters();
       try { applyStrictness("high", false); } catch (e2) {}
-      filters.v = 6;
+      filters.unified = true;
+      filters.showAdvanced = false;
+      filters.sslFlipEntry = true;
+      filters.unifiedGap = 5;
+      filters.v = 7;
       try { saveJson(LS.filters, filters); } catch (e3) {}
       try { logError("Settings were reset: " + ((migErr && migErr.message) ? migErr.message : migErr)); } catch (e4) {}
     }
@@ -1276,7 +1303,12 @@
       html += togBtn("strict-low", "Low", filters.strictness === "low");
       html += togBtn("strict-medium", "Medium", filters.strictness === "medium");
       html += togBtn("strict-high", "High", filters.strictness === "high");
-      html += "</div><p class=\"hint\">High (default) keeps only high-quality, confirmed setups. Medium is the v5.0 filters plus a cooldown. Low matches v5.0, including forming-candle flags.</p></div>";
+      html += "</div><p class=\"hint\">High (default) keeps only high-quality, confirmed setups. Medium is the v5.0 filters plus a cooldown. Low matches v5.0, including forming-candle flags. In unified mode this also controls how many conditions a BUY/SELL needs.</p></div>";
+      html += "<div><div class=\"filt-label\">Unified signal</div>";
+      html += checkRow("conf-unified-adv", "Advanced: show individual signals (pattern and SSL-flip markers)", !filters.unified);
+      html += checkRow("conf-ssl-flip-entry", "Allow SSL1 flip + ADX rising (no candle pattern) as a BUY/SELL", filters.sslFlipEntry !== false);
+      html += "<div class=\"num-row\">Min bars between BUY/SELL <input id=\"conf-unified-gap\" type=\"number\" min=\"0\" max=\"50\" value=\"" + (isFinite(Number(filters.unifiedGap)) ? filters.unifiedGap : 5) + "\" /></div>";
+      html += "<p class=\"hint\">Default: one BUY or SELL when a reversal, SSL Hybrid, and non-ranging trend agree. Signals alternate (BUY, then SELL, then BUY). Advanced restores the old per-pattern markers.</p></div>";
       html += "<div><div class=\"filt-label\">Indicators</div><div class=\"tog-grid\">";
       html += togBtn("ind-ema20", "EMA 20", state.showEma20);
       html += togBtn("ind-ema50", "EMA 50", state.showEma50);
@@ -1397,6 +1429,26 @@
       bindCheck("conf-rsi", "rsiZone", true);
       bindCheck("conf-vol", "volSma", true);
       bindCheck("conf-forming", "showForming", false);
+      var advEl = host.querySelector("#conf-unified-adv");
+      if (advEl) advEl.addEventListener("change", function () {
+        filters.unified = !advEl.checked;
+        filters.showAdvanced = advEl.checked;
+        persistFilters(); refreshSignals(); renderHeader();
+        if (filters.scan) startScan(false);
+      });
+      var flipEntEl = host.querySelector("#conf-ssl-flip-entry");
+      if (flipEntEl) flipEntEl.addEventListener("change", function () {
+        filters.sslFlipEntry = flipEntEl.checked; persistFilters(); refreshSignals(); renderHeader();
+        if (filters.scan) startScan(false);
+      });
+      var gapEl = host.querySelector("#conf-unified-gap");
+      if (gapEl) gapEl.addEventListener("change", function () {
+        var n = parseInt(gapEl.value, 10);
+        if (!isFinite(n)) n = 5;
+        n = Math.max(0, Math.min(50, n));
+        filters.unifiedGap = n; gapEl.value = n; persistFilters(); refreshSignals();
+        if (filters.scan) startScan(false);
+      });
       bindCheck("conf-strict-wick", "strictWick", true);
       bindCheck("conf-extreme", "extreme", true);
       bindCheck("conf-vol-confirm", "volConfirm", true);
@@ -2114,7 +2166,10 @@
       filters.volMult = 1.2;
       filters.cooldownSame = (high || med) ? 10 : 0;
       filters.cooldownOpp = (high || med) ? 5 : 0;
-      filters.v = 6;
+      if (typeof filters.unified !== "boolean") filters.unified = true;
+      if (typeof filters.sslFlipEntry !== "boolean") filters.sslFlipEntry = true;
+      if (!isFinite(Number(filters.unifiedGap))) filters.unifiedGap = 5;
+      filters.v = Math.max(7, Number(filters.v) || 7);
       if (persist !== false) {
         persistFilters();
         refreshSignals();
@@ -2150,7 +2205,7 @@
           if (k === "strictness" || k === "patterns") continue;
           filters[k] = overrides[k];
         }
-        n = detectSignals(state.candles, true).length;
+        n = getActiveSignals(state.candles, true).length;
       } finally {
         restoreFilters(saved);
       }
@@ -2331,6 +2386,32 @@
       document.getElementById("low").textContent = fmtPrice(t.low);
       document.getElementById("volume").textContent = isFinite(t.volume) ? fmtQty(t.volume) + " " + baseAsset(state.symbol) : "—";
       document.getElementById("qvolume").textContent = isFinite(t.quoteVolume) ? fmtQty(t.quoteVolume) + " USDT" : "—";
+      renderLastSignal();
+    }
+    function barsAgoOf(t) {
+      var candles = state.candles, i;
+      if (!candles.length) return null;
+      for (i = candles.length - 1; i >= 0; i--) {
+        if (candles[i].time === t) return candles.length - 1 - i;
+      }
+      var interval = (INTERVAL_MS[state.tf] || 60000) / 1000;
+      return Math.max(0, Math.round((candles[candles.length - 1].time - t) / interval));
+    }
+    function renderLastSignal() {
+      var el = document.getElementById("last-signal");
+      if (!el) return;
+      if (filters.unified === false) {
+        el.textContent = "";
+        return;
+      }
+      var sigs = state.signals || [], s, ago, label;
+      if (!sigs.length) { el.innerHTML = "Last: —"; return; }
+      s = sigs[sigs.length - 1];
+      ago = barsAgoOf(s.time);
+      label = s.dir === "bull" ? "BUY" : "SELL";
+      el.innerHTML = "Last: <span class=\"" + (s.dir === "bull" ? "buy" : "sell") + "\">" + label +
+        "</span> @ " + fmtPrice(s.price) +
+        (ago == null ? "" : ", " + ago + " bar" + (ago === 1 ? "" : "s") + " ago");
     }
     function applyTicker(partial) {
       state.ticker = Object.assign({}, state.ticker || {}, partial);
@@ -2516,14 +2597,163 @@
       }
       return applyCooldown(out);
     }
+    function isAdxRising(ssl, i) {
+      return !!(ssl && i > 0 && isFinite(ssl.adx[i]) && isFinite(ssl.adx[i - 1]) && ssl.adx[i] > ssl.adx[i - 1]);
+    }
+    function adxExitingRange(ssl, i) {
+      if (!isAdxRising(ssl, i)) return false;
+      var thresh = Number(filters.adxThresh) || 25;
+      if (!isFinite(ssl.adx[i]) || ssl.adx[i] < thresh) return false;
+      var j, from = Math.max(0, i - 10), sawWeak = false;
+      for (j = from; j < i; j++) {
+        if (isFinite(ssl.adx[j]) && ssl.adx[j] < thresh) { sawWeak = true; break; }
+      }
+      return sawWeak;
+    }
+    function qualifyingPatterns(candles, i, dir) {
+      var ids = detectAt(candles, i), out = [], k, id;
+      for (k = 0; k < ids.length; k++) {
+        id = ids[k];
+        if (!filters.patterns || !filters.patterns[id]) continue;
+        if (id.indexOf("ssl") === 0) continue;
+        if (patternDir(id, candles, i) !== dir) continue;
+        out.push(id);
+      }
+      return out;
+    }
+    function confluenceAt(dir, i, candles, rsis, bb, ssl) {
+      var pats = qualifyingPatterns(candles, i, dir);
+      var hasPattern = pats.length > 0;
+      var hasExtreme = !!(ssl && touchesExtreme(dir, i, candles, rsis, bb, filters.extremeN || 3, filters.swingN || 20));
+      var hasSsl = !!(ssl && sslAgrees(dir, i, candles, ssl, filters.sslN || 3));
+      var ranging = !!(filters.rangeFilter && isRangingAt(i, candles, ssl));
+      var adxUp = adxExitingRange(ssl, i);
+      var flip = !!(ssl && ((dir === "bull" && ssl.ssl1Flip[i] === 1) || (dir === "bear" && ssl.ssl1Flip[i] === -1)));
+      var vsBase = !!(ssl && isFinite(ssl.baseline[i]) &&
+        (dir === "bull" ? candles[i].close > ssl.baseline[i] : candles[i].close < ssl.baseline[i]));
+      var flipEntry = !!(filters.sslFlipEntry !== false && flip && adxUp && vsBase && !ranging);
+      var reasons = [], names = [], k, meta, level, ok = false;
+      for (k = 0; k < pats.length; k++) {
+        meta = PATTERN_MAP[pats[k]];
+        names.push(meta ? meta.name : pats[k]);
+      }
+      if (hasPattern) reasons.push(names.join(", "));
+      else if (flipEntry) reasons.push("SSL1 flip + ADX rising");
+      if (hasExtreme) reasons.push("Extreme");
+      if (hasSsl) reasons.push("SSL");
+      if (adxUp) reasons.push("ADX rising");
+      var score = (hasPattern || flipEntry ? 1 : 0) + (hasExtreme ? 1 : 0) + (hasSsl ? 1 : 0) + (adxUp ? 1 : 0);
+      if (ranging) {
+        ok = false;
+      } else if (flipEntry) {
+        ok = true;
+      } else if (!hasPattern) {
+        ok = false;
+      } else {
+        level = filters.strictness || "high";
+        if (level === "high") ok = hasSsl && (filters.extreme ? hasExtreme : true);
+        else if (level === "medium") ok = hasSsl;
+        else ok = true;
+      }
+      return {
+        ok: ok, score: score, reasons: reasons, pats: pats,
+        flipEntry: flipEntry, hasPattern: hasPattern, hasExtreme: hasExtreme,
+        hasSsl: hasSsl, adxUp: adxUp, ranging: ranging
+      };
+    }
+    function detectUnifiedSignals(candles, includeForming) {
+      var out = [], last, lastClosed, forming = false, interval, i, end, e20, e50, rsis, bb, ssl;
+      var bull, bear, pick, lastDir = null, lastIdx = -1e9, gap, side;
+      if (!candles || candles.length < 2) return out;
+      last = candles.length - 1;
+      interval = INTERVAL_MS[state.tf] || 60000;
+      lastClosed = last;
+      if (candles[last].time * 1000 + interval > Date.now() + 500) { forming = true; lastClosed = last - 1; }
+      // Unified mode never uses the live candle (no repaint).
+      end = lastClosed;
+      e20 = emaArr(candles, 20);
+      e50 = emaArr(candles, 50);
+      rsis = rsiArr(candles, 14);
+      bb = bollingerArr(candles, 20, 2);
+      ssl = getSsl(candles);
+      gap = isFinite(Number(filters.unifiedGap)) ? Number(filters.unifiedGap) : 5;
+      side = filters.side || "both";
+      for (i = 1; i <= end; i++) {
+        bull = confluenceAt("bull", i, candles, rsis, bb, ssl);
+        bear = confluenceAt("bear", i, candles, rsis, bb, ssl);
+        pick = null;
+        if (bull.ok && bear.ok) {
+          if (bull.score > bear.score) pick = { dir: "bull", c: bull };
+          else if (bear.score > bull.score) pick = { dir: "bear", c: bear };
+        } else if (bull.ok) pick = { dir: "bull", c: bull };
+        else if (bear.ok) pick = { dir: "bear", c: bear };
+        if (!pick) continue;
+        if (side !== "both" && pick.dir !== side) continue;
+        if (i - lastIdx < gap) continue;
+        if (side === "both" && lastDir && pick.dir === lastDir) continue;
+        lastDir = pick.dir;
+        lastIdx = i;
+        out.push({
+          index: i, time: candles[i].time, price: candles[i].close,
+          dir: pick.dir, id: pick.dir === "bull" ? "buy" : "sell",
+          name: pick.dir === "bull" ? "BUY" : "SELL",
+          short: pick.dir === "bull" ? "BUY" : "SELL",
+          forming: false,
+          score: pick.c.score,
+          reasons: pick.c.reasons,
+          flipEntry: pick.c.flipEntry,
+          unified: true
+        });
+      }
+      return out;
+    }
+    function getActiveSignals(candles, includeForming) {
+      if (filters.unified !== false) return detectUnifiedSignals(candles, includeForming);
+      return detectSignals(candles, includeForming);
+    }
+    function backtestSignals(sigs, horizons) {
+      var candles = state.candles, result = {}, h, k, s, j, later, fav, tot, move;
+      horizons = horizons || [5, 10, 20];
+      for (k = 0; k < horizons.length; k++) {
+        h = horizons[k];
+        tot = 0; fav = 0;
+        for (j = 0; j < (sigs || []).length; j++) {
+          s = sigs[j];
+          if (s.index + h >= candles.length) continue;
+          later = candles[s.index + h].close;
+          move = later - s.price;
+          if ((s.dir === "bull" && move > 0) || (s.dir === "bear" && move < 0)) fav++;
+          tot++;
+        }
+        result[h] = { n: tot, favorable: fav, pct: tot ? Math.round((fav / tot) * 1000) / 10 : null };
+      }
+      return result;
+    }
     function refreshSignals() {
-      var sigs = detectSignals(state.candles, true);
+      var sigs = getActiveSignals(state.candles, true);
       state.signals = sigs;
       window.__pumpStatus.signals = sigs.length;
       applyMarkers(sigs);
       renderSignalList(sigs);
+      renderLastSignal();
     }
     function applyMarkers(sigs) {
+      if (filters.unified !== false) {
+        var umarkers = sigs.map(function (s) {
+          return {
+            time: s.time,
+            position: s.dir === "bull" ? "belowBar" : "aboveBar",
+            color: s.dir === "bull" ? UP : DOWN,
+            shape: s.dir === "bull" ? "arrowUp" : "arrowDown",
+            text: s.dir === "bull" ? "BUY" : "SELL"
+          };
+        });
+        umarkers.sort(function (a, b) { return a.time - b.time; });
+        candleSeries.setMarkers(umarkers);
+        window.__pumpStatus.markers = umarkers.length;
+        window.__pumpStatus.labelsOn = true;
+        return;
+      }
       var byTime = {};
       sigs.forEach(function (s) {
         var pri = PATTERN_PRIORITY[s.id] || 0;
@@ -2577,7 +2807,8 @@
       if (freshN) { badge.textContent = freshN > 99 ? "99+" : String(freshN); badge.classList.add("show"); }
       else badge.classList.remove("show");
       if (!recent.length) {
-        host.innerHTML = "<div class=\"empty\">No reversal signals match the current filters on " + esc(pairLabel(state.symbol)) + " " + esc(state.tf) + ".</div>";
+        host.innerHTML = "<div class=\"empty\">No " + (filters.unified !== false ? "BUY/SELL" : "reversal") +
+          " signals match the current filters on " + esc(pairLabel(state.symbol)) + " " + esc(state.tf) + ".</div>";
         return;
       }
       var html = "";
@@ -2585,10 +2816,17 @@
         html += "<button type=\"button\" class=\"signal-card " + s.dir + (s.forming ? " forming" : "") + "\" data-time=\"" + s.time + "\">";
         html += "<div class=\"sig-top\"><span class=\"sig-name sig-dir " + s.dir + "\">" + (s.dir === "bull" ? "▲ " : "▼ ") + esc(s.name) + "</span>";
         html += "<span class=\"sig-px\">" + fmtPrice(s.price) + "</span></div>";
-        html += "<div class=\"sig-meta\">" + fmtFull(s.time) + " · " + esc(state.tf) + " · " + esc(pairLabel(state.symbol)) + "</div>";
+        html += "<div class=\"sig-meta\">" + fmtFull(s.time) + " · " + esc(state.tf) + " · " + esc(pairLabel(state.symbol));
+        if (isFinite(s.score)) html += " · <span class=\"sig-score\">" + s.score + "/4</span>";
+        html += "</div>";
         html += "<div class=\"sig-chips\">";
         if (s.forming) html += "<span class=\"mini-chip\">Forming</span>";
-        html += "<span class=\"mini-chip\">" + esc(s.short) + "</span></div></button>";
+        if (s.reasons && s.reasons.length) {
+          s.reasons.forEach(function (r) { html += "<span class=\"mini-chip\">" + esc(r) + "</span>"; });
+        } else {
+          html += "<span class=\"mini-chip\">" + esc(s.short) + "</span>";
+        }
+        html += "</div></button>";
       });
       host.innerHTML = html;
     }
@@ -3124,11 +3362,11 @@
             if (last < 0) { done += 1; continue; }
             forming = candles[last].time * 1000 + interval > Date.now() + 500;
             closedTime = forming && last >= 1 ? candles[last - 1].time : candles[last].time;
-            hits = detectSignals(candles, true).filter(function (s) {
-              return s.time === closedTime || (filters.showForming && s.forming);
+            hits = getActiveSignals(candles, true).filter(function (s) {
+              return s.time === closedTime || (filters.unified === false && filters.showForming && s.forming);
             });
             fresh = hits.length ? hits[hits.length - 1] : null;
-            if (fresh) state.scanMap[item.symbol] = { dir: fresh.dir, short: fresh.short, name: fresh.name, time: fresh.time };
+            if (fresh) state.scanMap[item.symbol] = { dir: fresh.dir, short: fresh.short, name: fresh.name, time: fresh.time, score: fresh.score };
             else delete state.scanMap[item.symbol];
           } catch (e) {
             if (String(e).indexOf("429") !== -1) await sleep(2000);
@@ -3183,6 +3421,8 @@
       countSignalsWith: countSignalsWith,
       rangingStats: rangingStats,
       applyStrictness: function (level) { applyStrictness(level, true); },
+      getActiveSignals: function () { return getActiveSignals(state.candles, true); },
+      backtestSignals: function (horizons) { return backtestSignals(getActiveSignals(state.candles, true), horizons); },
       resetSettings: resetSettings,
       diagText: diagText,
       setFilter: function (key, val) { filters[key] = val; persistFilters(); refreshSignals(); renderIndicators(); }
