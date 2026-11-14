@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0b0e11" />
-  <meta name="app-version" content="4.0" />
+  <meta name="app-version" content="5.0" />
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta name="mobile-web-app-capable" content="yes" />
@@ -12,7 +12,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>PUMP/USDT — Binance Spot</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230b0e11'/%3E%3Cpath d='M3 11 L7 6 L10 9 L13 4' stroke='%230ecb81' stroke-width='1.6' fill='none'/%3E%3C/svg%3E" />
-  <script src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js?v=4.0"></script>
+  <script src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js?v=5.0"></script>
   <style>
     :root {
       --bg: #0b0e11;
@@ -452,6 +452,7 @@
       text-align: center;
     }
     .hint { font-size: 12px; color: var(--muted); line-height: 1.45; }
+    #legend .rng { color: #848e9c; font-weight: 700; }
 
     /* Bottom sheet */
     #backdrop {
@@ -600,7 +601,7 @@
   </style>
 </head>
 <body>
-  <!-- coin-chart v4 rest-ws failover polling -->
+  <!-- coin-chart v5 ssl-hybrid ranging-filter -->
   <div id="app">
     <header id="header">
       <div id="header-inner">
@@ -669,7 +670,7 @@
         <div class="sheet-title-row">
           <div class="sheet-title">Settings</div>
         </div>
-        <div class="sheet-sub">Indicators, reversal patterns, and confirmation filters<br />Version 4.0 · REST/WS failover</div>
+        <div class="sheet-sub">Indicators, reversal patterns, and confirmation filters<br />Version 5.0 · SSL Hybrid + ranging filter</div>
       </div>
       <div class="list" id="settings-body"></div>
     </section>
@@ -710,7 +711,7 @@
       ready: false, errors: [], live: false, trades: 0, symbol: "PUMPUSDT",
       coinsLoaded: false, coinCount: 0, marketLive: false,
       signals: 0, markers: 0, view: "chart", scanDone: 0, switched: [],
-      version: "4.0", mode: null, restBase: null, wsHost: null, polls: 0
+      version: "5.0", mode: null, restBase: null, wsHost: null, polls: 0
     };
 
     function logError(err) {
@@ -728,7 +729,10 @@
 
     var TFS = ["1m", "5m", "15m", "1h", "4h", "1d"];
     var INTERVAL_MS = { "1m": 60000, "5m": 300000, "15m": 900000, "1h": 3600000, "4h": 14400000, "1d": 86400000 };
-    var APP_VERSION = "4.0";
+    var APP_VERSION = "5.0";
+    var SSL_UP = "#00c3ff";
+    var SSL_DOWN = "#ff0062";
+    var SSL_GRAY = "#787b86";
     var REST_BASES = [
       "https://data-api.binance.vision",
       "https://api.binance.com",
@@ -772,7 +776,13 @@
       { id: "piercing", name: "Piercing Line", short: "Prc", dir: "bull" },
       { id: "darkCloud", name: "Dark Cloud Cover", short: "Drk", dir: "bear" },
       { id: "tweezerBottom", name: "Tweezer Bottom", short: "TwB", dir: "bull" },
-      { id: "tweezerTop", name: "Tweezer Top", short: "TwT", dir: "bear" }
+      { id: "tweezerTop", name: "Tweezer Top", short: "TwT", dir: "bear" },
+      { id: "sslBaseBull", name: "SSL Baseline Bull", short: "SSL", dir: "bull" },
+      { id: "sslBaseBear", name: "SSL Baseline Bear", short: "SSL", dir: "bear" },
+      { id: "ssl1Bull", name: "SSL1 Flip Up", short: "S1", dir: "bull" },
+      { id: "ssl1Bear", name: "SSL1 Flip Down", short: "S1", dir: "bear" },
+      { id: "sslExitBull", name: "SSL Exit Short", short: "Ex", dir: "bull" },
+      { id: "sslExitBear", name: "SSL Exit Long", short: "Ex", dir: "bear" }
     ];
     var PATTERN_MAP = {};
     PATTERNS.forEach(function (p) { PATTERN_MAP[p.id] = p; });
@@ -782,6 +792,8 @@
       piercing: 80, darkCloud: 80,
       hammer: 70, hangingMan: 70, invHammer: 70, shootingStar: 70,
       tweezerBottom: 50, tweezerTop: 50,
+      sslBaseBull: 88, sslBaseBear: 88, ssl1Bull: 86, ssl1Bear: 86,
+      sslExitBull: 55, sslExitBear: 55,
       dragonfly: 40, gravestone: 40, doji: 30
     };
 
@@ -791,10 +803,16 @@
       on.doji = false;
       on.dragonfly = false;
       on.gravestone = false;
+      on.sslExitBull = false;
+      on.sslExitBear = false;
       return {
         patterns: on, side: "both", trendEma: false, trendPrior: true,
         trendN: 5, rsiZone: false, volSma: false, showForming: true, scan: true,
-        showLabels: false, v: 3
+        showLabels: false,
+        sslAgree: true, sslN: 3, sslFlips: true,
+        rangeFilter: true, rangeAdx: true, adxThresh: 20,
+        rangeChop: true, chopThresh: 61.8, rangeChannel: true, rangeShade: true,
+        v: 5
       };
     }
     function loadJson(key, fallback) {
@@ -825,12 +843,26 @@
         filters.patterns.doji = false;
         filters.patterns.dragonfly = false;
         filters.patterns.gravestone = false;
-        filters.v = 3;
+      }
+      if (!savedFilters.v || savedFilters.v < 5) {
+        filters.sslAgree = true;
+        filters.sslN = 3;
+        filters.sslFlips = true;
+        filters.rangeFilter = true;
+        filters.rangeAdx = true;
+        filters.adxThresh = 20;
+        filters.rangeChop = true;
+        filters.chopThresh = 61.8;
+        filters.rangeChannel = true;
+        filters.rangeShade = true;
+        if (typeof filters.patterns.sslExitBull === "undefined") filters.patterns.sslExitBull = false;
+        if (typeof filters.patterns.sslExitBear === "undefined") filters.patterns.sslExitBear = false;
+        filters.v = 5;
         saveJson(LS.filters, filters);
       }
     }
 
-    var savedInd = loadJson(LS.indicators, { showEma20: true, showEma50: true, showBb: false, showRsi: true });
+    var savedInd = loadJson(LS.indicators, { showEma20: true, showEma50: true, showBb: false, showRsi: true, showSslBase: true, showSsl1: true, showSsl2: false, showSslExit: false, showSslAtr: false });
     var savedSymbol = "PUMPUSDT";
     try {
       var lsSym = localStorage.getItem(LS.symbol);
@@ -848,6 +880,12 @@
       showEma50: savedInd.showEma50 !== false,
       showBb: !!savedInd.showBb,
       showRsi: savedInd.showRsi !== false,
+      showSslBase: savedInd.showSslBase !== false,
+      showSsl1: savedInd.showSsl1 !== false,
+      showSsl2: !!savedInd.showSsl2,
+      showSslExit: !!savedInd.showSslExit,
+      showSslAtr: !!savedInd.showSslAtr,
+      ssl: null,
       lastTrade: null, ticker: null, ws: null, marketWs: null, closed: false,
       hostIndex: 0, marketHostIndex: 0, attempt: 0, marketAttempt: 0,
       wsFailures: 0, marketFailures: 0,
@@ -987,7 +1025,10 @@
     function persistIndicators() {
       saveJson(LS.indicators, {
         showEma20: state.showEma20, showEma50: state.showEma50,
-        showBb: state.showBb, showRsi: state.showRsi
+        showBb: state.showBb, showRsi: state.showRsi,
+        showSslBase: state.showSslBase, showSsl1: state.showSsl1,
+        showSsl2: state.showSsl2, showSslExit: state.showSslExit,
+        showSslAtr: state.showSslAtr
       });
     }
     function persistSymbol() { try { localStorage.setItem(LS.symbol, state.symbol); } catch (e) {} }
@@ -1047,6 +1088,11 @@
       html += togBtn("ind-ema50", "EMA 50", state.showEma50);
       html += togBtn("ind-bb", "Bollinger", state.showBb);
       html += togBtn("ind-rsi", "RSI 14", state.showRsi);
+      html += togBtn("ind-ssl-base", "SSL Baseline + channel", state.showSslBase);
+      html += togBtn("ind-ssl1", "SSL1", state.showSsl1);
+      html += togBtn("ind-ssl2", "SSL2 (JMA 5)", state.showSsl2);
+      html += togBtn("ind-ssl-exit", "SSL Exit (HMA 15)", state.showSslExit);
+      html += togBtn("ind-ssl-atr", "ATR bands", state.showSslAtr);
       html += "</div></div>";
       html += "<div><div class=\"filt-label\">Direction</div><div class=\"tog-grid\">";
       html += togBtn("side-both", "Both", filters.side === "both");
@@ -1068,6 +1114,20 @@
       html += checkRow("conf-vol", "Volume above 20-SMA", filters.volSma);
       html += checkRow("conf-forming", "Flag the forming candle", filters.showForming);
       html += checkRow("conf-labels", "Show labels on chart markers (1–3 letter codes)", filters.showLabels);
+      html += "</div>";
+      html += "<div><div class=\"filt-label\">SSL Hybrid agreement</div>";
+      html += checkRow("conf-ssl-agree", "Require SSL Hybrid agreement (close vs baseline, or baseline / SSL1 flip within N bars)", filters.sslAgree);
+      html += "<div class=\"num-row\">N = <input id=\"conf-ssl-n\" type=\"number\" min=\"1\" max=\"20\" value=\"" + (filters.sslN || 3) + "\" /> bars</div>";
+      html += checkRow("conf-ssl-flips", "Show SSL flip signals (baseline color change / SSL1 cross)", filters.sslFlips);
+      html += "</div>";
+      html += "<div><div class=\"filt-label\">Ranging / chop filter</div>";
+      html += checkRow("conf-range", "Suppress signals when the market is ranging", filters.rangeFilter);
+      html += checkRow("conf-range-adx", "ADX(14) below threshold", filters.rangeAdx);
+      html += "<div class=\"num-row\">ADX &lt; <input id=\"conf-adx\" type=\"number\" min=\"1\" max=\"50\" step=\"1\" value=\"" + (filters.adxThresh || 20) + "\" /></div>";
+      html += checkRow("conf-range-chop", "Choppiness Index(14) above threshold", filters.rangeChop);
+      html += "<div class=\"num-row\">CHOP &gt; <input id=\"conf-chop\" type=\"number\" min=\"1\" max=\"100\" step=\"0.1\" value=\"" + (filters.chopThresh || 61.8) + "\" /></div>";
+      html += checkRow("conf-range-chan", "Close inside SSL baseline channel (gray)", filters.rangeChannel);
+      html += checkRow("conf-range-shade", "Shade ranging zones on the chart", filters.rangeShade);
       html += checkRow("conf-scan", "Scan top 50 coins for fresh signals", filters.scan);
       html += "</div>";
       html += "<p class=\"hint\">Version " + APP_VERSION + " · Times are UTC+7 (Asia/Jakarta). If the chart stays on Connecting, close and reopen this tab. Data: Binance REST (multiple endpoints) + WebSocket, with REST polling fallback.</p>";
@@ -1091,7 +1151,12 @@
             state.showRsi = !state.showRsi; persistIndicators();
             document.getElementById("rsi-chart").classList.toggle("hidden", !state.showRsi);
             layoutCharts(); renderIndicators();
-          } else if (id === "side-both" || id === "side-bull" || id === "side-bear") {
+          } else if (id === "ind-ssl-base") { state.showSslBase = !state.showSslBase; persistIndicators(); renderIndicators(); }
+          else if (id === "ind-ssl1") { state.showSsl1 = !state.showSsl1; persistIndicators(); renderIndicators(); }
+          else if (id === "ind-ssl2") { state.showSsl2 = !state.showSsl2; persistIndicators(); renderIndicators(); }
+          else if (id === "ind-ssl-exit") { state.showSslExit = !state.showSslExit; persistIndicators(); renderIndicators(); refreshSignals(); }
+          else if (id === "ind-ssl-atr") { state.showSslAtr = !state.showSslAtr; persistIndicators(); renderIndicators(); }
+          else if (id === "side-both" || id === "side-bull" || id === "side-bear") {
             filters.side = id.replace("side-", ""); persistFilters(); refreshSignals();
             if (filters.scan) startScan(false);
           } else if (id === "pat-all") {
@@ -1112,7 +1177,7 @@
         var el = host.querySelector("#" + id);
         if (!el) return;
         el.addEventListener("change", function () {
-          filters[key] = el.checked; persistFilters(); refreshSignals();
+          filters[key] = el.checked; persistFilters(); refreshSignals(); renderIndicators();
           if (rescan && filters.scan) startScan(false);
         });
       }
@@ -1121,6 +1186,31 @@
       bindCheck("conf-rsi", "rsiZone", true);
       bindCheck("conf-vol", "volSma", true);
       bindCheck("conf-forming", "showForming", false);
+      bindCheck("conf-ssl-agree", "sslAgree", true);
+      bindCheck("conf-ssl-flips", "sslFlips", true);
+      bindCheck("conf-range", "rangeFilter", true);
+      bindCheck("conf-range-adx", "rangeAdx", true);
+      bindCheck("conf-range-chop", "rangeChop", true);
+      bindCheck("conf-range-chan", "rangeChannel", true);
+      var shadeEl = host.querySelector("#conf-range-shade");
+      if (shadeEl) shadeEl.addEventListener("change", function () {
+        filters.rangeShade = shadeEl.checked; persistFilters(); renderIndicators();
+      });
+      var sslNEl = host.querySelector("#conf-ssl-n");
+      if (sslNEl) sslNEl.addEventListener("change", function () {
+        var n = Math.max(1, Math.min(20, parseInt(sslNEl.value, 10) || 3));
+        filters.sslN = n; sslNEl.value = n; persistFilters(); refreshSignals(); if (filters.scan) startScan(false);
+      });
+      var adxEl = host.querySelector("#conf-adx");
+      if (adxEl) adxEl.addEventListener("change", function () {
+        var n = Math.max(1, Math.min(50, parseFloat(adxEl.value) || 20));
+        filters.adxThresh = n; adxEl.value = n; persistFilters(); refreshSignals(); renderIndicators(); if (filters.scan) startScan(false);
+      });
+      var chopEl = host.querySelector("#conf-chop");
+      if (chopEl) chopEl.addEventListener("change", function () {
+        var n = Math.max(1, Math.min(100, parseFloat(chopEl.value) || 61.8));
+        filters.chopThresh = n; chopEl.value = n; persistFilters(); refreshSignals(); renderIndicators(); if (filters.scan) startScan(false);
+      });
       var labEl = host.querySelector("#conf-labels");
       if (labEl) labEl.addEventListener("change", function () {
         filters.showLabels = labEl.checked; persistFilters(); refreshSignals();
@@ -1213,6 +1303,20 @@
     var bbUpperSeries = mainChart.addLineSeries({ color: "#848e9c", lineWidth: 1, priceLineVisible: false, lastValueVisible: false, title: "BB Upper" });
     var bbMidSeries = mainChart.addLineSeries({ color: "#848e9c", lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, priceLineVisible: false, lastValueVisible: false, title: "BB Mid" });
     var bbLowerSeries = mainChart.addLineSeries({ color: "#848e9c", lineWidth: 1, priceLineVisible: false, lastValueVisible: false, title: "BB Lower" });
+    var sslBaseSeries = mainChart.addLineSeries({ color: SSL_UP, lineWidth: 2, priceLineVisible: false, lastValueVisible: true, title: "SSL Base" });
+    var sslUpperSeries = mainChart.addLineSeries({ color: SSL_GRAY, lineWidth: 1, priceLineVisible: false, lastValueVisible: false, title: "" });
+    var sslLowerSeries = mainChart.addLineSeries({ color: SSL_GRAY, lineWidth: 1, priceLineVisible: false, lastValueVisible: false, title: "" });
+    var ssl1Series = mainChart.addLineSeries({ color: SSL_UP, lineWidth: 2, priceLineVisible: false, lastValueVisible: true, title: "SSL1" });
+    var ssl2Series = mainChart.addLineSeries({ color: "#ffb000", lineWidth: 1, priceLineVisible: false, lastValueVisible: false, title: "SSL2" });
+    var sslExitSeries = mainChart.addLineSeries({ color: "#d1d4dc", lineWidth: 2, priceLineVisible: false, lastValueVisible: false, title: "SSL Exit" });
+    var sslAtrUpperSeries = mainChart.addLineSeries({ color: "#565b63", lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, priceLineVisible: false, lastValueVisible: false, title: "ATR Upper" });
+    var sslAtrLowerSeries = mainChart.addLineSeries({ color: "#565b63", lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, priceLineVisible: false, lastValueVisible: false, title: "ATR Lower" });
+    var rangeShadeSeries = mainChart.addHistogramSeries({
+      priceScaleId: "ranging", lastValueVisible: false, priceLineVisible: false, base: 0
+    });
+    mainChart.priceScale("ranging").applyOptions({
+      scaleMargins: { top: 0, bottom: 0.94 }, visible: false, borderVisible: false
+    });
     var rsiSeries = rsiChart.addLineSeries({ color: "#c994e0", lineWidth: 2, priceLineVisible: false, lastValueVisible: true, title: "RSI 14" });
     rsiChart.priceScale("right").applyOptions({ scaleMargins: { top: 0.08, bottom: 0.08 } });
     rsiSeries.createPriceLine({ price: 70, color: "#f6465d", lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true, title: "70" });
@@ -1332,7 +1436,312 @@
       return out;
     }
 
-    function renderIndicators() {
+    function wmaNum(src, length) {
+      var n = src.length, out = new Array(n), denom = length * (length + 1) / 2, i, j, sum, v, ok;
+      for (i = 0; i < n; i++) {
+        if (i < length - 1) { out[i] = NaN; continue; }
+        sum = 0; ok = true;
+        for (j = 0; j < length; j++) {
+          v = src[i - length + 1 + j];
+          if (!isFinite(v)) { ok = false; break; }
+          sum += v * (j + 1);
+        }
+        out[i] = ok ? sum / denom : NaN;
+      }
+      return out;
+    }
+    function hmaNum(src, length) {
+      var half = Math.max(1, Math.floor(length / 2));
+      var sqrtl = Math.max(1, Math.round(Math.sqrt(length)));
+      var wmaHalf = wmaNum(src, half);
+      var wmaFull = wmaNum(src, length);
+      var raw = new Array(src.length), i;
+      for (i = 0; i < src.length; i++) {
+        raw[i] = isFinite(wmaHalf[i]) && isFinite(wmaFull[i]) ? 2 * wmaHalf[i] - wmaFull[i] : NaN;
+      }
+      return wmaNum(raw, sqrtl);
+    }
+    function jmaNum(src, length, phase, power) {
+      var n = src.length, out = new Array(n), i, s, pr, beta, alpha, e0 = 0, e1 = 0, e2 = 0, jv = 0, started = false;
+      phase = phase == null ? 3 : phase;
+      power = power == null ? 1 : power;
+      length = Math.max(1, length);
+      pr = phase < -100 ? 0.5 : phase > 100 ? 2.5 : phase / 100 + 1.5;
+      beta = 0.45 * (length - 1) / (0.45 * (length - 1) + 2);
+      alpha = Math.pow(beta, power);
+      for (i = 0; i < n; i++) {
+        s = src[i];
+        if (!isFinite(s)) { out[i] = started ? jv : NaN; continue; }
+        if (!started) { e0 = s; e1 = 0; e2 = 0; jv = s; started = true; out[i] = s; continue; }
+        e0 = (1 - alpha) * s + alpha * e0;
+        e1 = (s - e0) * (1 - beta) + beta * e1;
+        e2 = (e0 + pr * e1 - jv) * Math.pow(1 - alpha, 2) + Math.pow(alpha, 2) * e2;
+        jv = e2 + jv;
+        out[i] = jv;
+      }
+      return out;
+    }
+    function colArr(candles, key) {
+      var out = new Array(candles.length), i;
+      for (i = 0; i < candles.length; i++) out[i] = candles[i][key];
+      return out;
+    }
+    function trueRangeArr(candles) {
+      var n = candles.length, out = new Array(n), i, c, p;
+      for (i = 0; i < n; i++) {
+        c = candles[i];
+        if (i === 0) { out[i] = c.high - c.low; continue; }
+        p = candles[i - 1].close;
+        out[i] = Math.max(c.high - c.low, Math.abs(c.high - p), Math.abs(c.low - p));
+      }
+      return out;
+    }
+    function emaNum(src, period) {
+      var n = src.length, out = new Array(n), k = 2 / (period + 1), seed = 0, count = 0, i, prev = NaN;
+      for (i = 0; i < n; i++) {
+        if (!isFinite(src[i])) { out[i] = NaN; continue; }
+        if (count < period) {
+          seed += src[i]; count++;
+          if (count === period) { prev = seed / period; out[i] = prev; } else out[i] = NaN;
+        } else {
+          prev = src[i] * k + prev * (1 - k);
+          out[i] = prev;
+        }
+      }
+      return out;
+    }
+    function smaNum(src, period) {
+      var n = src.length, out = new Array(n), sum = 0, i, v;
+      for (i = 0; i < n; i++) {
+        v = src[i];
+        if (!isFinite(v)) { out[i] = NaN; sum = 0; continue; }
+        sum += v;
+        if (i >= period && isFinite(src[i - period])) sum -= src[i - period];
+        out[i] = i >= period - 1 ? sum / period : NaN;
+      }
+      return out;
+    }
+    function adxArr(candles, period) {
+      var n = candles.length, i, up, down, plusDM, minusDM, tr = trueRangeArr(candles);
+      var smTR = new Array(n), smP = new Array(n), smM = new Array(n), dx = new Array(n), out = new Array(n);
+      var sumTR = 0, sumP = 0, sumM = 0, sumDX = 0, pdi, mdi, diSum;
+      for (i = 0; i < n; i++) { smTR[i] = smP[i] = smM[i] = dx[i] = out[i] = NaN; }
+      for (i = 1; i < n; i++) {
+        up = candles[i].high - candles[i - 1].high;
+        down = candles[i - 1].low - candles[i].low;
+        plusDM = (up > down && up > 0) ? up : 0;
+        minusDM = (down > up && down > 0) ? down : 0;
+        if (i <= period) {
+          sumTR += tr[i]; sumP += plusDM; sumM += minusDM;
+          if (i === period) {
+            smTR[i] = sumTR; smP[i] = sumP; smM[i] = sumM;
+          }
+        } else {
+          smTR[i] = smTR[i - 1] - smTR[i - 1] / period + tr[i];
+          smP[i] = smP[i - 1] - smP[i - 1] / period + plusDM;
+          smM[i] = smM[i - 1] - smM[i - 1] / period + minusDM;
+        }
+        if (isFinite(smTR[i]) && smTR[i] > 0) {
+          pdi = 100 * smP[i] / smTR[i];
+          mdi = 100 * smM[i] / smTR[i];
+          diSum = pdi + mdi;
+          dx[i] = diSum > 0 ? 100 * Math.abs(pdi - mdi) / diSum : 0;
+        }
+        if (i === period * 2 - 1) {
+          sumDX = 0;
+          var j, ok = true;
+          for (j = period; j <= i; j++) {
+            if (!isFinite(dx[j])) { ok = false; break; }
+            sumDX += dx[j];
+          }
+          if (ok) out[i] = sumDX / period;
+        } else if (i > period * 2 - 1 && isFinite(out[i - 1]) && isFinite(dx[i])) {
+          out[i] = (out[i - 1] * (period - 1) + dx[i]) / period;
+        }
+      }
+      return out;
+    }
+    function chopArr(candles, period) {
+      var n = candles.length, tr = trueRangeArr(candles), out = new Array(n);
+      var i, j, sum, hi, lo, den, logn = Math.log(period);
+      for (i = 0; i < n; i++) {
+        if (i < period - 1) { out[i] = NaN; continue; }
+        sum = 0; hi = -Infinity; lo = Infinity;
+        for (j = i - period + 1; j <= i; j++) {
+          sum += tr[j];
+          if (candles[j].high > hi) hi = candles[j].high;
+          if (candles[j].low < lo) lo = candles[j].low;
+        }
+        den = hi - lo;
+        out[i] = den <= 0 ? 100 : 100 * Math.log(sum / den) / logn;
+      }
+      return out;
+    }
+    function sslHlv(close, maHigh, maLow) {
+      var n = close.length, hlv = new Array(n), line = new Array(n), last = 0, i;
+      for (i = 0; i < n; i++) {
+        if (!isFinite(maHigh[i]) || !isFinite(maLow[i]) || !isFinite(close[i])) {
+          hlv[i] = last; line[i] = NaN; continue;
+        }
+        if (close[i] > maHigh[i]) last = 1;
+        else if (close[i] < maLow[i]) last = -1;
+        hlv[i] = last;
+        line[i] = last === 0 ? NaN : (last < 0 ? maHigh[i] : maLow[i]);
+      }
+      return { hlv: hlv, line: line };
+    }
+    function computeSsl(candles) {
+      var n = candles ? candles.length : 0;
+      var empty = { len: n, lastTime: 0, lastClose: 0, baseline: [], upperk: [], lowerk: [], baseColor: [], baseDir: [], baseFlip: [], ssl1: [], ssl1Hlv: [], ssl1Flip: [], ssl2: [], ssl2Hlv: [], exitLine: [], exitHlv: [], exitFlip: [], atrUpper: [], atrLower: [], adx: [], chop: [], ranging: [], insideChan: [] };
+      if (!n) return empty;
+      var close = colArr(candles, "close"), high = colArr(candles, "high"), low = colArr(candles, "low");
+      var baseline = hmaNum(close, 60);
+      var tr = trueRangeArr(candles);
+      var rangema = emaNum(tr, 60);
+      var upperk = new Array(n), lowerk = new Array(n), baseColor = new Array(n), baseDir = new Array(n), baseFlip = new Array(n);
+      var insideChan = new Array(n), i, dir, prevDir, c, up, lo;
+      for (i = 0; i < n; i++) {
+        up = isFinite(baseline[i]) && isFinite(rangema[i]) ? baseline[i] + rangema[i] * 0.2 : NaN;
+        lo = isFinite(baseline[i]) && isFinite(rangema[i]) ? baseline[i] - rangema[i] * 0.2 : NaN;
+        upperk[i] = up; lowerk[i] = lo;
+        c = close[i];
+        if (!isFinite(up) || !isFinite(lo)) {
+          baseColor[i] = SSL_GRAY; baseDir[i] = 0; insideChan[i] = false; baseFlip[i] = 0;
+        } else if (c > up) {
+          baseColor[i] = SSL_UP; baseDir[i] = 1; insideChan[i] = false;
+        } else if (c < lo) {
+          baseColor[i] = SSL_DOWN; baseDir[i] = -1; insideChan[i] = false;
+        } else {
+          baseColor[i] = SSL_GRAY; baseDir[i] = 0; insideChan[i] = true;
+        }
+        prevDir = i > 0 ? baseDir[i - 1] : 0;
+        dir = baseDir[i];
+        baseFlip[i] = (dir === 1 && prevDir !== 1) ? 1 : (dir === -1 && prevDir !== -1) ? -1 : 0;
+      }
+      var maHigh1 = hmaNum(high, 60), maLow1 = hmaNum(low, 60);
+      var s1 = sslHlv(close, maHigh1, maLow1);
+      var ssl1Flip = new Array(n);
+      for (i = 0; i < n; i++) {
+        prevDir = i > 0 ? s1.hlv[i - 1] : 0;
+        dir = s1.hlv[i];
+        ssl1Flip[i] = (dir === 1 && prevDir !== 1 && dir !== 0) ? 1 : (dir === -1 && prevDir !== -1 && dir !== 0) ? -1 : 0;
+      }
+      var maHigh2 = jmaNum(high, 5, 3, 1), maLow2 = jmaNum(low, 5, 3, 1);
+      var s2 = sslHlv(close, maHigh2, maLow2);
+      var maHighE = hmaNum(high, 15), maLowE = hmaNum(low, 15);
+      var sE = sslHlv(close, maHighE, maLowE);
+      var exitFlip = new Array(n);
+      for (i = 0; i < n; i++) {
+        prevDir = i > 0 ? sE.hlv[i - 1] : 0;
+        dir = sE.hlv[i];
+        exitFlip[i] = (dir === 1 && prevDir !== 1 && dir !== 0) ? 1 : (dir === -1 && prevDir !== -1 && dir !== 0) ? -1 : 0;
+      }
+      var atr = smaNum(tr, 14);
+      var atrUpper = new Array(n), atrLower = new Array(n);
+      for (i = 0; i < n; i++) {
+        atrUpper[i] = isFinite(atr[i]) ? close[i] + atr[i] : NaN;
+        atrLower[i] = isFinite(atr[i]) ? close[i] - atr[i] : NaN;
+      }
+      var ssl = {
+        len: n,
+        lastTime: candles[n - 1].time,
+        lastClose: candles[n - 1].close,
+        baseline: baseline, upperk: upperk, lowerk: lowerk,
+        baseColor: baseColor, baseDir: baseDir, baseFlip: baseFlip,
+        ssl1: s1.line, ssl1Hlv: s1.hlv, ssl1Flip: ssl1Flip,
+        ssl2: s2.line, ssl2Hlv: s2.hlv,
+        exitLine: sE.line, exitHlv: sE.hlv, exitFlip: exitFlip,
+        atrUpper: atrUpper, atrLower: atrLower,
+        adx: adxArr(candles, 14), chop: chopArr(candles, 14),
+        insideChan: insideChan, ranging: new Array(n)
+      };
+      applyRangingFlags(ssl, candles);
+      return ssl;
+    }
+    function getSsl(candles) {
+      if (candles === state.candles && state.ssl && state.ssl.len === candles.length &&
+          state.ssl.lastTime === (candles.length ? candles[candles.length - 1].time : 0) &&
+          state.ssl.lastClose === (candles.length ? candles[candles.length - 1].close : 0)) {
+        applyRangingFlags(state.ssl, candles);
+        return state.ssl;
+      }
+      var ssl = computeSsl(candles);
+      if (candles === state.candles) state.ssl = ssl;
+      return ssl;
+    }
+    function isRangingAt(i, candles, ssl) {
+      if (!filters.rangeFilter || !ssl || i < 0) return false;
+      if (filters.rangeAdx && isFinite(ssl.adx[i]) && ssl.adx[i] < (Number(filters.adxThresh) || 20)) return true;
+      if (filters.rangeChop && isFinite(ssl.chop[i]) && ssl.chop[i] > (Number(filters.chopThresh) || 61.8)) return true;
+      if (filters.rangeChannel && ssl.insideChan && ssl.insideChan[i]) return true;
+      return false;
+    }
+    function applyRangingFlags(ssl, candles) {
+      if (!ssl) return ssl;
+      var i, n = ssl.baseline.length;
+      ssl.ranging = new Array(n);
+      for (i = 0; i < n; i++) ssl.ranging[i] = isRangingAt(i, candles, ssl);
+      return ssl;
+    }
+    function sslAgrees(dir, i, candles, ssl, lookback) {
+      if (!ssl) return true;
+      var n = lookback || 3, k, from;
+      var base = ssl.baseline[i];
+      if (!isFinite(base)) return true;
+      if (dir === "bull") {
+        if (candles[i].close > base) return true;
+        from = Math.max(0, i - n + 1);
+        for (k = from; k <= i; k++) {
+          if (ssl.baseFlip[k] === 1 || ssl.ssl1Flip[k] === 1) return true;
+        }
+        return false;
+      }
+      if (candles[i].close < base) return true;
+      from = Math.max(0, i - n + 1);
+      for (k = from; k <= i; k++) {
+        if (ssl.baseFlip[k] === -1 || ssl.ssl1Flip[k] === -1) return true;
+      }
+      return false;
+    }
+    function linePts(candles, values, colors, colorOf) {
+      var out = [], i, c;
+      for (i = 0; i < candles.length; i++) {
+        if (!isFinite(values[i])) continue;
+        c = colors ? colors[i] : (colorOf ? colorOf(i) : undefined);
+        if (c) out.push({ time: candles[i].time, value: values[i], color: c });
+        else out.push({ time: candles[i].time, value: values[i] });
+      }
+      return out;
+    }
+    function hlvColor(hlv, i, up, down) {
+      return hlv[i] < 0 ? (down || SSL_DOWN) : (up || SSL_UP);
+    }
+    function countSignalsWith(overrides) {
+      var saved = {}, k, n;
+      overrides = overrides || {};
+      for (k in overrides) {
+        if (Object.prototype.hasOwnProperty.call(overrides, k)) {
+          saved[k] = filters[k];
+          filters[k] = overrides[k];
+        }
+      }
+      n = detectSignals(state.candles, true).length;
+      for (k in saved) {
+        if (Object.prototype.hasOwnProperty.call(saved, k)) filters[k] = saved[k];
+      }
+      return n;
+    }
+    function rangingStats() {
+      var ssl = getSsl(state.candles), i, ready = 0, ranging = 0;
+      for (i = 0; i < ssl.baseline.length; i++) {
+        if (!isFinite(ssl.baseline[i])) continue;
+        ready++;
+        if (ssl.ranging[i]) ranging++;
+      }
+      return { ranging: ranging, ready: ready, bars: state.candles.length };
+    }
+
+        function renderIndicators() {
       var rows = state.candles;
       ema20Series.setData(state.showEma20 ? ema(rows, 20) : []);
       ema50Series.setData(state.showEma50 ? ema(rows, 50) : []);
@@ -1343,6 +1752,33 @@
         bbUpperSeries.setData([]); bbMidSeries.setData([]); bbLowerSeries.setData([]);
       }
       rsiSeries.setData(state.showRsi ? rsi(rows, 14) : []);
+      var ssl = rows.length ? getSsl(rows) : null;
+      if (ssl && state.showSslBase) {
+        sslBaseSeries.setData(linePts(rows, ssl.baseline, ssl.baseColor));
+        sslUpperSeries.setData(linePts(rows, ssl.upperk, ssl.baseColor));
+        sslLowerSeries.setData(linePts(rows, ssl.lowerk, ssl.baseColor));
+      } else {
+        sslBaseSeries.setData([]); sslUpperSeries.setData([]); sslLowerSeries.setData([]);
+      }
+      ssl1Series.setData(ssl && state.showSsl1 ? linePts(rows, ssl.ssl1, null, function (i) { return hlvColor(ssl.ssl1Hlv, i); }) : []);
+      ssl2Series.setData(ssl && state.showSsl2 ? linePts(rows, ssl.ssl2, null, function (i) { return hlvColor(ssl.ssl2Hlv, i, "#ffb000", "#ab47bc"); }) : []);
+      sslExitSeries.setData(ssl && state.showSslExit ? linePts(rows, ssl.exitLine, null, function (i) { return hlvColor(ssl.exitHlv, i, "#d1d4dc", "#848e9c"); }) : []);
+      if (ssl && state.showSslAtr) {
+        sslAtrUpperSeries.setData(linePts(rows, ssl.atrUpper));
+        sslAtrLowerSeries.setData(linePts(rows, ssl.atrLower));
+      } else {
+        sslAtrUpperSeries.setData([]); sslAtrLowerSeries.setData([]);
+      }
+      if (ssl && filters.rangeShade) {
+        var shade = [], i, t;
+        for (i = 0; i < rows.length; i++) {
+          t = rows[i].time;
+          shade.push({ time: t, value: ssl.ranging[i] ? 1 : 0, color: ssl.ranging[i] ? "rgba(120,130,150,0.28)" : "rgba(0,0,0,0)" });
+        }
+        rangeShadeSeries.setData(shade);
+      } else {
+        rangeShadeSeries.setData([]);
+      }
     }
     function volumePoint(c) {
       return { time: c.time, value: c.volume, color: c.close >= c.open ? "rgba(14,203,129,0.5)" : "rgba(246,70,93,0.5)" };
@@ -1428,7 +1864,24 @@
         fmtPrice(bar.high) + "</strong>  L <strong>" + fmtPrice(bar.low) + "</strong>  <span class=\"" + cls +
         "\">C <strong>" + fmtPrice(bar.close) + "</strong></span>  Vol <strong>" + fmtQty(bar.volume) +
         "</strong>  <span class=\"" + cls + "\"><strong>" + (chg >= 0 ? "+" : "") + fmtPrice(chg) + " (" + fmtPct(pct) + ")</strong></span>" +
-        legendSignals(bar.time);
+        legendSignals(bar.time) + legendSsl(bar);
+    }
+    function legendSsl(bar) {
+      var ssl = state.ssl, i, parts = [], col, cls;
+      if (!ssl || !bar) return "";
+      for (i = state.candles.length - 1; i >= 0; i--) {
+        if (state.candles[i].time === bar.time) break;
+      }
+      if (i < 0) return "";
+      if (state.showSslBase && isFinite(ssl.baseline[i])) {
+        col = ssl.baseColor[i];
+        cls = col === SSL_UP ? "up" : col === SSL_DOWN ? "down" : "rng";
+        parts.push("<span class=\"" + cls + "\">SSL <strong>" + fmtPrice(ssl.baseline[i]) + "</strong></span>");
+      }
+      if (isFinite(ssl.adx[i])) parts.push("ADX " + ssl.adx[i].toFixed(1));
+      if (isFinite(ssl.chop[i])) parts.push("CHOP " + ssl.chop[i].toFixed(1));
+      if (ssl.ranging[i]) parts.push("<span class=\"rng\">RNG</span>");
+      return parts.length ? "  " + parts.join("  ") : "";
     }
     function legendSignals(t) {
       var hits = (state.signals || []).filter(function (s) { return s.time === t; });
@@ -1554,7 +2007,7 @@
       if (meta.dir !== "both") return meta.dir;
       return priorTrend(candles, i, 5) === "up" ? "bear" : "bull";
     }
-    function passesConfirm(dir, i, candles, e20, e50, rsis) {
+    function passesConfirm(dir, i, candles, e20, e50, rsis, ssl) {
       if (filters.trendEma) {
         var px = candles[i].close;
         var ref = isFinite(e50[i]) ? e50[i] : e20[i];
@@ -1577,6 +2030,8 @@
         var vs = volSmaAt(candles, i, 20);
         if (!isFinite(vs) || candles[i].volume <= vs) return false;
       }
+      if (filters.rangeFilter && isRangingAt(i, candles, ssl)) return false;
+      if (filters.sslAgree && !sslAgrees(dir, i, candles, ssl, filters.sslN || 3)) return false;
       return true;
     }
     function sideOk(dir) { return filters.side === "both" || filters.side === dir; }
@@ -1591,7 +2046,16 @@
       var e20 = emaArr(candles, 20);
       var e50 = emaArr(candles, 50);
       var rsis = rsiArr(candles, 14);
+      var ssl = getSsl(candles);
       end = includeForming && filters.showForming ? last : lastClosed;
+      function pushSig(id, i, dir) {
+        meta = PATTERN_MAP[id];
+        out.push({
+          index: i, time: candles[i].time, price: candles[i].close, dir: dir, id: id,
+          name: meta ? meta.name : id, short: meta ? meta.short : id,
+          forming: forming && i === last
+        });
+      }
       for (i = 1; i <= end; i++) {
         ids = detectAt(candles, i);
         for (k = 0; k < ids.length; k++) {
@@ -1599,13 +2063,18 @@
           if (!filters.patterns[id]) continue;
           dir = patternDir(id, candles, i);
           if (!sideOk(dir)) continue;
-          if (!passesConfirm(dir, i, candles, e20, e50, rsis)) continue;
-          meta = PATTERN_MAP[id];
-          out.push({
-            index: i, time: candles[i].time, price: candles[i].close, dir: dir, id: id,
-            name: meta ? meta.name : id, short: meta ? meta.short : id,
-            forming: forming && i === last
-          });
+          if (!passesConfirm(dir, i, candles, e20, e50, rsis, ssl)) continue;
+          pushSig(id, i, dir);
+        }
+        if (filters.sslFlips && ssl) {
+          if (ssl.baseFlip[i] === 1 && filters.patterns.sslBaseBull && sideOk("bull") && !isRangingAt(i, candles, ssl)) pushSig("sslBaseBull", i, "bull");
+          if (ssl.baseFlip[i] === -1 && filters.patterns.sslBaseBear && sideOk("bear") && !isRangingAt(i, candles, ssl)) pushSig("sslBaseBear", i, "bear");
+          if (ssl.ssl1Flip[i] === 1 && filters.patterns.ssl1Bull && sideOk("bull") && !isRangingAt(i, candles, ssl)) pushSig("ssl1Bull", i, "bull");
+          if (ssl.ssl1Flip[i] === -1 && filters.patterns.ssl1Bear && sideOk("bear") && !isRangingAt(i, candles, ssl)) pushSig("ssl1Bear", i, "bear");
+        }
+        if (ssl && (filters.patterns.sslExitBull || filters.patterns.sslExitBear)) {
+          if (ssl.exitFlip[i] === 1 && filters.patterns.sslExitBull && sideOk("bull") && !isRangingAt(i, candles, ssl)) pushSig("sslExitBull", i, "bull");
+          if (ssl.exitFlip[i] === -1 && filters.patterns.sslExitBear && sideOk("bear") && !isRangingAt(i, candles, ssl)) pushSig("sslExitBear", i, "bear");
         }
       }
       return out;
@@ -1637,6 +2106,24 @@
         if (filters.showLabels) mk.text = s.short;
         return mk;
       });
+      if (state.showSslExit && state.ssl) {
+        var taken = {};
+        markers.forEach(function (m) { taken[m.time] = true; });
+        var exI, exT, exDir;
+        for (exI = 1; exI < state.candles.length; exI++) {
+          exDir = state.ssl.exitFlip[exI];
+          if (!exDir) continue;
+          exT = state.candles[exI].time;
+          if (taken[exT]) continue;
+          markers.push({
+            time: exT,
+            position: exDir === 1 ? "belowBar" : "aboveBar",
+            color: exDir === 1 ? "#d1d4dc" : "#848e9c",
+            shape: exDir === 1 ? "arrowUp" : "arrowDown"
+          });
+          taken[exT] = true;
+        }
+      }
       markers.sort(function (a, b) { return a.time - b.time; });
       candleSeries.setMarkers(markers);
       window.__pumpStatus.markers = markers.length;
@@ -2244,7 +2731,11 @@
       getState: function () { return state; },
       getFilters: function () { return filters; },
       getVisibleLogicalRange: function () { return mainChart.timeScale().getVisibleLogicalRange(); },
-      version: APP_VERSION
+      version: APP_VERSION,
+      getSsl: function () { return getSsl(state.candles); },
+      countSignalsWith: countSignalsWith,
+      rangingStats: rangingStats,
+      setFilter: function (key, val) { filters[key] = val; persistFilters(); refreshSignals(); renderIndicators(); }
     };
 
     setView("chart");
