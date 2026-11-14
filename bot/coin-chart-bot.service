@@ -1,0 +1,19 @@
+[Unit]
+Description=coin-chart ATR swing signal bot (alert only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/coin-chart
+ExecStart=/usr/bin/python3 /opt/coin-chart/bot/signal_bot.py --config /opt/coin-chart/bot/config.yaml
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/opt/coin-chart/bot/.env
+# Optional: run as a non-root user
+# User=chartbot
+# Group=chartbot
+
+[Install]
+WantedBy=multi-user.target

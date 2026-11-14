@@ -13,5 +13,6 @@ Smartphone-first live chart for every Binance Spot USDT pair. BUY marks a confir
 - The arrow sits on the actual pivot candle; confirmation comes later, after price reverses by about 5×ATR (Med). Confirmed markers do not repaint
 - Connection: Binance REST and WebSocket with failover, plus a REST polling fallback
 - Times in UTC+7 (Asia/Jakarta)
+- Optional alert-only Python bot (same swing logic): see [`bot/README.md`](bot/README.md)
 
 The Tokocrypto version has been removed. `binance.html` redirects here.
